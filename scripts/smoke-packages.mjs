@@ -34,6 +34,9 @@ export async function smokePackages() {
   await writeFile(resolve(project, "src/vite-contract.ts"), `
 import defaultAngulus, { angulus, type CheckEvent } from "@angulus/tooling/vite";
 import type { Plugin } from "vite";
+import { buildLibrary, type LibraryBuildResult } from "@angulus/tooling/library";
+const build: (options?: { root?: string }) => Promise<LibraryBuildResult> = buildLibrary;
+void build;
 const plugin: Plugin = angulus({
   checkBuild: true,
   onEvent(event) {
@@ -105,6 +108,7 @@ import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { signal, computed } from "@angulus/core";
 import { createRouter } from "@angulus/router";
+import { buildLibrary } from "@angulus/tooling/library";
 import { checkInstalledDependencies } from "../package-isolation.mjs";
 const nodeModules = ${JSON.stringify(nodeModules)};
 function inside(file) {
@@ -121,7 +125,7 @@ async function checkTree(directory) {
 await checkTree(nodeModules);
 await checkInstalledDependencies(${JSON.stringify(resolve(project, "package.json"))}, nodeModules);
 const toolingRequire = createRequire(${JSON.stringify(resolve(tooling, "package.json"))});
-for (const name of ["@angulus/core", "@angulus/router", "@angulus/tooling/vite"]) {
+for (const name of ["@angulus/core", "@angulus/router", "@angulus/tooling/vite", "@angulus/tooling/library"]) {
   const file = await realpath(fileURLToPath(import.meta.resolve(name)));
   inside(file);
   assert.ok(!file.endsWith(".ts"), "Runtime exports must be compiled JS: " + file);
@@ -135,6 +139,7 @@ assert.equal(doubled(), 4);
 count.set(3);
 assert.equal(doubled(), 6);
 assert.equal(typeof createRouter, "function");
+assert.equal(typeof buildLibrary, "function");
 const { compilerLocation } = await import(pathToFileURL(${JSON.stringify(resolve(tooling, "src/binary.mjs"))}));
 const location = await compilerLocation();
 assert.equal(location.sourceRoot, undefined);

@@ -32,6 +32,11 @@ test("publishable runtime manifests expose compiled ESM and declaration files", 
     import: "./src/vite.mjs",
     default: "./src/vite.mjs",
   });
+  assert.deepEqual(tooling.exports["./library"], {
+    types: "./types/library.d.mts",
+    import: "./src/library.mjs",
+    default: "./src/library.mjs",
+  });
 });
 
 test("compiler package targets cover the seven supported npm OS/CPU pairs", () => {

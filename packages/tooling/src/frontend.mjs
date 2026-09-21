@@ -106,3 +106,67 @@ export function resolveImport(from, specifier, options = {}) {
   if (specifier.startsWith(".") && !extname(candidate) && ts.sys.fileExists(`${candidate}.ts`)) return `${candidate}.ts`;
   throw new Error(`Cannot resolve '${specifier}' imported by ${from}`);
 }
+
+// Published declarations carry compiler metadata, never executable decorators.
+export async function exportedComponent(file, name, options = {}, visited = new Set(), files = new Set()) {
+  files.add(file);
+  const key = `${file}:${name}`;
+  if (visited.has(key)) return null;
+  visited = new Set(visited).add(key);
+  const source = await readFile(file, "utf8");
+  const ast = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const fail = message => { throw new CompilationError([diagnostic(file, source, 0, "F_LIBRARY", message)]); };
+  if (/\.d\.[cm]?ts$/.test(file)) {
+    let text;
+    try { text = await readFile(`${file}.angulus.json`, "utf8"); }
+    catch (error) { if (error.code !== "ENOENT") throw error; }
+    if (text !== undefined) {
+      files.add(`${file}.angulus.json`);
+      let data;
+      try { data = JSON.parse(text); }
+      catch { fail(`Invalid Angulus metadata: ${file}.angulus.json`); }
+      if (data?.version !== 1 || typeof data.name !== "string" ||
+          typeof data.selector !== "string" || !/^[a-z][a-z0-9]*(?:-[a-z0-9]+)+$/.test(data.selector)) {
+        fail(`Unsupported or invalid Angulus library metadata: ${file}.angulus.json`);
+      }
+      if (data.name === name && ast.statements.some(statement =>
+        ts.isClassDeclaration(statement) && statement.name?.text === name &&
+        statement.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.ExportKeyword))) {
+        return { file, name, selector: data.selector };
+      }
+    }
+  } else {
+    const component = await metadata(file);
+    if (component?.name === name) return component;
+  }
+  for (const statement of ast.statements) {
+    if (!ts.isExportDeclaration(statement) || statement.isTypeOnly) continue;
+    const specifier = statement.moduleSpecifier;
+    const from = specifier && ts.isStringLiteral(specifier) ? resolveImport(file, specifier.text, options) : file;
+    if (statement.exportClause && ts.isNamedExports(statement.exportClause)) {
+      const item = statement.exportClause.elements.find(item => !item.isTypeOnly && item.name.text === name);
+      if (!item) continue;
+      const original = (item.propertyName ?? item.name).text;
+      if (from !== file) return exportedComponent(from, original, options, visited, files);
+      // export { ImportedComponent as PublicName };
+      for (const declaration of ast.statements) {
+        if (!ts.isImportDeclaration(declaration) || !ts.isStringLiteral(declaration.moduleSpecifier)) continue;
+        const bindings = declaration.importClause?.namedBindings;
+        if (declaration.importClause?.isTypeOnly || !bindings || !ts.isNamedImports(bindings)) continue;
+        const imported = bindings.elements.find(item => !item.isTypeOnly && item.name.text === original);
+        if (imported) return exportedComponent(resolveImport(file, declaration.moduleSpecifier.text, options),
+          (imported.propertyName ?? imported.name).text, options, visited, files);
+      }
+      if (original !== name) return exportedComponent(file, original, options, visited, files);
+    }
+  }
+  const matches = [];
+  for (const statement of ast.statements) {
+    if (!ts.isExportDeclaration(statement) || statement.isTypeOnly || statement.exportClause ||
+        !statement.moduleSpecifier || !ts.isStringLiteral(statement.moduleSpecifier)) continue;
+    const match = await exportedComponent(resolveImport(file, statement.moduleSpecifier.text, options), name, options, visited, files);
+    if (match && !matches.some(item => item.file === match.file && item.name === match.name)) matches.push(match);
+  }
+  if (matches.length > 1) fail(`Ambiguous component export '${name}'. Use an explicit named re-export.`);
+  return matches[0] ?? null;
+}

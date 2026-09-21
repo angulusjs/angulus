@@ -13,3 +13,17 @@ export class CompilationError extends Error {
     this.diagnostics = diagnostics;
   }
 }
+
+export function stderrLogger() {
+  const write = message => process.stderr.write(`${message}\n`);
+  const warned = new Set();
+  return {
+    hasWarned: false,
+    info: write,
+    warn(message) { this.hasWarned = true; write(message); },
+    warnOnce(message) { if (!warned.has(message)) { warned.add(message); this.warn(message); } },
+    error: write,
+    clearScreen() {},
+    hasErrorLogged() { return false; },
+  };
+}

@@ -4,7 +4,7 @@ import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expression } from "../src/expressions.mjs";
-import { metadata } from "../src/frontend.mjs";
+import { metadata, exportedComponent } from "../src/frontend.mjs";
 import { scopeStyles } from "../src/styles.mjs";
 
 const parse = (raw, options = {}) => expression(raw, { file: "view.html", source: raw, start: 0, ...options }).code;
@@ -72,4 +72,25 @@ div { animation: pulse 1s; background: url("./image.png") }
   assert.throws(() => scopeStyles("@keyframes ease { to { opacity: 1 } } a { animation: ease 1s; }", "/app/a.css", "f-a"), /Ambiguous keyframe/);
   const names = scopeStyles('@keyframes "slide" { to { opacity: 1 } } a { animation-name: "slide"; animation-duration: 1s; }', "/app/a.css", "f-a");
   assert.match(names.code, /animation-name: "slide-f-a"/);
+});
+
+test("compiled metadata resolves barrel aliases and cycles without executing package code", async t => {
+  const directory = await mkdtemp(join(tmpdir(), "angulus-exports-"));
+  t.after(() => rm(directory, { recursive: true }));
+  const child = join(directory, "child.d.ts");
+  await writeFile(child, "export declare class Child { readonly value: string; }");
+  await writeFile(`${child}.angulus.json`, JSON.stringify({ version: 1, name: "Child", selector: "lib-child" }));
+  await writeFile(join(directory, "index.d.ts"), 'export * from "./cycle.js"; export { Child as PublicChild } from "./alias.js";');
+  await writeFile(join(directory, "cycle.d.ts"), 'export * from "./index.js";');
+  await writeFile(join(directory, "alias.d.ts"), 'import { Child } from "./child.js"; export { Child };');
+  const tracked = new Set();
+  assert.deepEqual(await exportedComponent(join(directory, "index.d.ts"), "PublicChild", {}, new Set(), tracked),
+    { file: child, name: "Child", selector: "lib-child" });
+  assert.ok(tracked.has(join(directory, "alias.d.ts")));
+  assert.ok(tracked.has(`${child}.angulus.json`));
+  assert.equal(await exportedComponent(join(directory, "index.d.ts"), "Missing"), null);
+  await writeFile(`${child}.angulus.json`, '{"version":2,"name":"Child","selector":"lib-child"}');
+  await assert.rejects(exportedComponent(child, "Child"), /Unsupported or invalid/);
+  await writeFile(`${child}.angulus.json`, "{");
+  await assert.rejects(exportedComponent(child, "Child"), /Invalid Angulus metadata/);
 });

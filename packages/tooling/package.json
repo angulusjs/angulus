@@ -22,6 +22,11 @@
     "angulus": "./src/cli.mjs"
   },
   "exports": {
+    "./library": {
+      "types": "./types/library.d.mts",
+      "import": "./src/library.mjs",
+      "default": "./src/library.mjs"
+    },
     "./vite": {
       "types": "./types/vite.d.mts",
       "import": "./src/vite.mjs",

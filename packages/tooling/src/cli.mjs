@@ -5,11 +5,12 @@ import { pathToFileURL } from 'node:url';
 import { spawn } from 'node:child_process';
 import { Project } from './project.mjs';
 import { angulus } from './vite.mjs';
+import { stderrLogger } from './diagnostics.mjs';
 
 const help = `Angulus commands:
   angulus serve [--root path] [--host host] [--port port] [--json]
   angulus check [--root path] [--json]
-  angulus build [--root path] [--json]
+  angulus build [--lib] [--root path] [--json]
   angulus preview [--root path] [--host host] [--port port]
   angulus test [--root path]
   angulus generate component <kebab-case-name> [--root path] [--force]
@@ -22,7 +23,7 @@ ready, not type-safe; "checked" contains diagnostics and may be stale.
 `;
 
 /**
- * @typedef {{ root: string, positional: string[], json: boolean, force: boolean,
+ * @typedef {{ root: string, positional: string[], json: boolean, force: boolean, lib?: boolean,
  *   help?: boolean, host?: string, port?: number }} CLIOptions
  */
 
@@ -36,6 +37,7 @@ export function parseArgs(args) {
   for (let index = 0; index < args.length; index++) {
     const arg = args[index];
     if (arg === '--json') options.json = true;
+    else if (arg === '--lib') options.lib = true;
     else if (arg === '--force') options.force = true;
     else if (arg === '--help' || arg === '-h') options.help = true;
     else if (['--root', '--host', '--port'].includes(arg)) {
@@ -66,6 +68,11 @@ export function readConfig(root) {
   if (config.proxy !== undefined && (!config.proxy || typeof config.proxy !== 'object' || Array.isArray(config.proxy))) throw new Error('proxy must be an object');
   if (config.test !== undefined && (!Array.isArray(config.test) || !config.test.length || config.test.some((arg) => typeof arg !== 'string' || !arg))) {
     throw new Error('test must be a nonempty command argv array');
+  }
+  if (config.library !== undefined && (!config.library || typeof config.library !== 'object' ||
+      Array.isArray(config.library) || Object.keys(config.library).some(key => key !== 'entry') ||
+      (config.library.entry !== undefined && (typeof config.library.entry !== 'string' || !config.library.entry)))) {
+    throw new Error('library must be an object with an optional "entry" TypeScript path');
   }
   return config;
 }
@@ -155,20 +162,6 @@ function installShutdown(close) {
   };
 }
 
-function stderrLogger() {
-  const write = (message) => process.stderr.write(`${message}\n`);
-  const warned = new Set();
-  return {
-    hasWarned: false,
-    info: write,
-    warn(message) { this.hasWarned = true; write(message); },
-    warnOnce(message) { if (!warned.has(message)) { warned.add(message); this.warn(message); } },
-    error: write,
-    clearScreen() {},
-    hasErrorLogged() { return false; },
-  };
-}
-
 export async function main(args = process.argv.slice(2)) {
   const options = parseArgs(args);
   const [command, ...rest] = options.positional;
@@ -183,6 +176,7 @@ export async function main(args = process.argv.slice(2)) {
     }
   };
   if (options.help || !command) { process.stdout.write(help); return 0; }
+  if (options.lib && command !== 'build') throw new Error('--lib is supported only by angulus build');
   if (!['serve', 'check', 'build', 'preview', 'test', 'generate'].includes(command)) throw new Error(`Unknown command: ${command}`);
   if (command === 'generate') {
     if (rest.length !== 2 || rest[0] !== 'component') throw new Error('Usage: angulus generate component <name>');
@@ -194,6 +188,13 @@ export async function main(args = process.argv.slice(2)) {
   if (rest.length) throw new Error(`Unexpected arguments: ${rest.join(' ')}`);
   if (!fs.existsSync(options.root) || !fs.statSync(options.root).isDirectory()) throw new Error(`Project root does not exist: ${options.root}`);
   const config = readConfig(options.root);
+  if (options.lib) {
+    const { buildLibrary } = await import('./library.mjs');
+    const result = await buildLibrary({ root: options.root, entry: config.library?.entry, onEvent: emit });
+    if (options.json) emit({ type: 'built', revision: 1, ...result });
+    else process.stdout.write(`Library built: ${result.directory}\nPublish with: npm publish ${JSON.stringify(result.directory)}\n`);
+    return 0;
+  }
   if (command === 'test') {
     if (!config.test) throw new Error('Configure the application test command as a "test" argv array in angulus.config.json');
     const child = spawn(config.test[0], config.test.slice(1), {

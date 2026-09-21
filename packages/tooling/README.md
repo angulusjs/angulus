@@ -22,6 +22,22 @@ needed by the generated component tests, which import `node:test` and
 Commands: `angulus serve`, `check [--json]`, `build`, `preview`, `test`, and
 `generate component <name>`. All accept `--root <project-directory>`.
 
+`angulus build --lib` compiles a publishable ESM component library from
+`src/index.ts` (override with `library.entry` in `angulus.config.json`). Declare
+`@angulus/core` as a peer dependency. Publish the generated package with
+`npm publish ./dist`, not the source directory. Consumers import components
+from the package and explicitly import `<package>/style.css` when it has styles.
+The `types` directory includes selector metadata required by the template checker.
+See the [library guide](https://github.com/angulusjs/angulus/blob/main/docs/libraries.md).
+
+For programmatic builds:
+
+```js
+import { buildLibrary } from "@angulus/tooling/library";
+const result = await buildLibrary({ root: process.cwd(), entry: "src/index.ts" });
+console.log(result.directory);
+```
+
 Components use TypeScript classes decorated with `@Component`, external HTML
 templates and optional scoped CSS. A Vite configuration is not required.
 For advanced integration:

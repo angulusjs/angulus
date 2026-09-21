@@ -76,7 +76,7 @@ export function prepareTemplate(nodes, component, dependencies) {
 export function checkerSource(nodes, component, dependencies) {
   const { templateFile: file, template: source } = component;
   const byTag = new Map(dependencies.map(dep => [dep.selector, dep]));
-  let code = `import { ${component.name} } from ${JSON.stringify(component.file)};\n`;
+  let code = `import type { ${component.name} } from ${JSON.stringify(component.file)};\n`;
   code += 'import type { Input, Output, WritableSignal, RequiredInput } from "@angulus/core";\n';
   code += 'export type __InputValue<T> = T extends Input<infer V> ? V : never;\n';
   code += 'export type __OutputValue<T> = T extends Output<infer V> ? V : never;\n';
@@ -85,7 +85,7 @@ export function checkerSource(nodes, component, dependencies) {
   code += 'export declare function __twoWay(value: WritableSignal<string>): void;\n';
   for (const [index, dep] of dependencies.entries()) {
     dep.checkerName = `__Child${index}`;
-    code += `import { ${dep.name} as ${dep.checkerName} } from ${JSON.stringify(dep.file)};\n`;
+    code += `import type { ${dep.name} as ${dep.checkerName} } from ${JSON.stringify(dep.file)};\n`;
   }
   code += `export function __check(ctx: ${component.name}) {\nvoid ctx;\n`;
   const mappings = [];

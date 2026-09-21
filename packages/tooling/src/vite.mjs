@@ -120,6 +120,12 @@ export function angulus(options = {}) {
   return {
     name: 'angulus',
     enforce: 'pre',
+    config() {
+      return {
+        resolve: { dedupe: ['@angulus/core'] },
+        optimizeDeps: { include: ['@angulus/core'] },
+      };
+    },
     configResolved(config) {
       root = config.root;
       command = config.command;

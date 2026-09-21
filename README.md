@@ -59,6 +59,17 @@ For maintainers, see [npm release setup and procedure](docs/releases.md),
 including the initial manual bootstrap and per-package Trusted Publisher
 configuration. No packages are published by `npm ci`, builds or pull-request CI.
 
+### Publishing your own components
+
+Use `angulus build --lib` to build a component library into a publishable `dist`
+package containing ESM, declarations, selector metadata, and scoped CSS.
+Applications import named components from that package in `@Component.imports`
+and explicitly import its `style.css`. The same builder is available as
+`buildLibrary()` from `@angulus/tooling/library`.
+
+See [component library setup, publication, and consumption](docs/libraries.md).
+This requires a tooling release containing library support (not tooling `0.1.1`).
+
 Preview serves the built application locally; it is not a production server.
 For deployment, configure the host to rewrite **HTML navigation requests** to
 `index.html`, but never missing assets or `/api` requests.

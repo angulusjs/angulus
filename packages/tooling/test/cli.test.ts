@@ -23,6 +23,7 @@ async function fixture(run: (root: string) => unknown) {
 
 test('CLI validates options and application configuration', async () => {
   assert.equal(parseArgs(['serve', '--port', '5174']).port, 5174);
+  assert.equal(parseArgs(['build', '--lib']).lib, true);
   assert.throws(() => parseArgs(['serve', '--port', '0']), /Port/);
   assert.throws(() => parseArgs(['serve', '--root']), /requires a value/);
   assert.throws(() => parseArgs(['serve', '--unknown']), /Unknown option/);
@@ -30,6 +31,10 @@ test('CLI validates options and application configuration', async () => {
     assert.deepEqual(readConfig(root), {});
     fs.writeFileSync(path.join(root, 'angulus.config.json'), '{"test":"npm test"}');
     assert.throws(() => readConfig(root), /argv array/);
+    fs.writeFileSync(path.join(root, 'angulus.config.json'), '{"library":{"entry":"src/public-api.ts"}}');
+    assert.equal(readConfig(root).library.entry, 'src/public-api.ts');
+    fs.writeFileSync(path.join(root, 'angulus.config.json'), '{"library":{"entry":42}}');
+    assert.throws(() => readConfig(root), /library/);
   });
 });
 
@@ -41,6 +46,9 @@ test('workspace bin symlink executes the CLI and propagates failures', () => {
   const invalid = spawnSync(workspaceBin, ['unknown-command', '--json'], { cwd: workspace, encoding: 'utf8' });
   assert.equal(invalid.status, 1, invalid.stderr);
   assert.match(JSON.parse(invalid.stdout).message, /Unknown command/);
+  const invalidLibrary = spawnSync(workspaceBin, ['serve', '--lib', '--json'], { cwd: workspace, encoding: 'utf8' });
+  assert.equal(invalidLibrary.status, 1, invalidLibrary.stderr);
+  assert.match(JSON.parse(invalidLibrary.stdout).message, /--lib is supported only/);
 });
 
 test('generator creates executable public API test and protects every existing file', async () => {

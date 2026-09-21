@@ -6,7 +6,7 @@ import ts from "typescript";
 import MagicString from "magic-string";
 import { encode } from "@jridgewell/sourcemap-codec";
 import { CompilerClient, run } from "./client.mjs";
-import { metadata, resolveImport } from "./frontend.mjs";
+import { metadata, resolveImport, exportedComponent } from "./frontend.mjs";
 import { prepareTemplate, checkerSource } from "./templates.mjs";
 import { scopeStyles } from "./styles.mjs";
 import { CompilationError, diagnostic } from "./diagnostics.mjs";
@@ -34,9 +34,13 @@ export class Project {
   #components = new Map();
   #started;
   #options = {};
+  #scopeNamespace;
   dependencies = new Map();
 
-  constructor(root) { this.root = resolve(root); }
+  constructor(root, { scopeNamespace = "" } = {}) {
+    this.root = resolve(root);
+    this.#scopeNamespace = scopeNamespace;
+  }
   get pid() { return this.#client.pid; }
   async start() {
     this.#started ??= this.#client.start();
@@ -76,15 +80,17 @@ export class Project {
     for (const dependency of meta.dependencies) {
       const depFile = resolveImport(file, dependency.from, this.#options);
       files.add(depFile);
-      const child = await this.#meta(depFile);
-      if (!child || child.name !== dependency.exported) {
-        throw new CompilationError([diagnostic(file, meta.source, meta.decoratorStart, "F_IMPORT", `${dependency.local} is not a named @Component class.`)]);
+      const child = await exportedComponent(depFile, dependency.exported, this.#options, new Set(), files);
+      if (!child) {
+        throw new CompilationError([diagnostic(file, meta.source, meta.decoratorStart, "F_IMPORT",
+          `${dependency.local} is not a named @Component class with compiler metadata. For npm libraries, run angulus build --lib and publish the generated dist package.`)]);
       }
       if (selectors.has(child.selector)) throw new CompilationError([diagnostic(file, meta.source, meta.decoratorStart, "F_IMPORT", `Duplicate imported selector '${child.selector}'.`)]);
       selectors.add(child.selector);
+      files.add(child.file);
       dependencies.push({ ...child, local: dependency.local });
     }
-    const component = { ...meta, template, templateFile, styleFile, scopeId: `f-${hash(relative(this.root, file))}` };
+    const component = { ...meta, template, templateFile, styleFile, scopeId: `f-${hash(`${this.#scopeNamespace}${relative(this.root, file).replaceAll("\\", "/")}`)}` };
     const prepared = prepareTemplate(parsed.nodes ?? [], component, dependencies);
     return { component, dependencies, prepared, nodes: parsed.nodes ?? [] };
   }
@@ -134,7 +140,7 @@ export class Project {
     const { styleFile, scopeId } = data.component;
     return scopeStyles(await readFile(styleFile, "utf8"), styleFile, scopeId);
   }
-  async check() {
+  async check(additionalFiles = []) {
     await this.start();
     const configPath = resolve(this.root, "tsconfig.json");
     const loaded = ts.readConfigFile(configPath, ts.sys.readFile);
@@ -145,7 +151,8 @@ export class Project {
     const parsedConfig = ts.parseJsonConfigFileContent(config, ts.sys, this.root);
     this.#options = parsedConfig.options;
     for (const error of parsedConfig.errors) errors.push(diagnostic(configPath, "", 0, `TS${error.code}`, ts.flattenDiagnosticMessageText(error.messageText, "\n")));
-    const sources = parsedConfig.fileNames.filter(file => !relative(this.root, file).split(/[\\/]/).some(part => ["node_modules", ".angulus", "dist"].includes(part)));
+    const sources = [...new Set([...parsedConfig.fileNames, ...additionalFiles])].filter(file =>
+      !relative(this.root, file).split(/[\\/]/).some(part => ["node_modules", ".angulus", "dist"].includes(part)));
     const checkDir = resolve(this.root, ".angulus/check");
     await mkdir(checkDir, { recursive: true });
     const generated = new Map();
