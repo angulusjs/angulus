@@ -3,6 +3,7 @@ import { access, mkdir } from "node:fs/promises";
 import { createInterface } from "node:readline";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { compilerLocation } from "./binary.mjs";
 
 export const workspace = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 
@@ -20,14 +21,15 @@ export function run(command, args, options = {}) {
 
 let building;
 async function compilerBinary() {
-  const binary = resolve(workspace, ".angulus/bin", process.platform === "win32" ? "angulus-compiler.exe" : "angulus-compiler");
+  const { binary, sourceRoot } = await compilerLocation();
+  if (!sourceRoot) return binary;
   try {
     await access(binary);
   } catch (error) {
     if (error.code !== "ENOENT") throw error;
     building ??= (async () => {
       await mkdir(dirname(binary), { recursive: true });
-      const result = await run("go", ["build", "-o", binary, "./cmd/angulus-compiler"], { cwd: workspace });
+      const result = await run("go", ["build", "-o", binary, "./cmd/angulus-compiler"], { cwd: sourceRoot });
       if (result.code !== 0) throw new Error(`Go compiler build failed:\n${result.stderr}`);
     })();
     await building;

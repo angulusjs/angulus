@@ -1,0 +1,35 @@
+# @angulus/tooling
+
+The Angulus CLI, Go template compiler integration, native TypeScript checker,
+and Vite plugin.
+
+```sh
+npm install @angulus/core @angulus/router
+npm install --save-dev @angulus/tooling
+npx angulus serve
+```
+
+Published packages include a matching prebuilt compiler via npm optional
+dependencies. **Go is not required in application projects.** Keep optional
+dependencies enabled. Supported targets: macOS x64/arm64, Linux x64/arm64/arm,
+and Windows x64/arm64. Node.js 22.12+ is required.
+
+Commands: `angulus serve`, `check [--json]`, `build`, `preview`, `test`, and
+`generate component <name>`. All accept `--root <project-directory>`.
+
+Components use TypeScript classes decorated with `@Component`, external HTML
+templates and optional scoped CSS. A Vite configuration is not required.
+For advanced integration:
+
+```js
+import { angulus } from "@angulus/tooling/vite";
+
+export default { plugins: [angulus()] };
+```
+
+`angulus.config.json` optionally configures `host`, `port`, API `proxy`, and
+the application's `test` command as an argument array. Production builds run
+full type/template checks before bundling; `preview` is not a production server.
+
+The framework is experimental. Documentation, examples, release procedure,
+and known limitations: https://github.com/angulusjs/angulus

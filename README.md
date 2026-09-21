@@ -2,9 +2,10 @@
 
 A working, experimental SPA framework: TypeScript classes, external HTML/CSS,
 a Go template compiler, fine-grained reactive DOM updates, and Vite.
-This repository is a source workspace, not a published or production-certified distribution.
+This repository includes distributable npm packages and a GitHub Releases
+publishing workflow. The framework is experimental, not production-certified.
 
-## Quick start
+## Quick start from source
 
 Requirements: Node.js 22.12+ (tested on 22.22), npm, and Go 1.26+.
 The pinned native TypeScript package supplies platform-specific binaries for
@@ -18,7 +19,8 @@ npm run dev
 
 Installation builds the Go compiler. The single development command starts the
 demo at `http://localhost:5173`. No hand-written Vite configuration is needed.
-Go must remain available when rebuilding the compiler from source.
+Go must remain available when rebuilding the compiler from source. Installation
+also builds the core/router JavaScript and TypeScript declarations.
 
 ```sh
 npm run check
@@ -26,6 +28,25 @@ npm run build
 npm run preview
 npm exec angulus -- test --root examples/demo
 ```
+
+### Using npm releases
+
+Once a release is published, an application can install:
+
+```sh
+npm install @angulus/core @angulus/router
+npm install --save-dev @angulus/tooling
+npx angulus serve
+```
+
+The published runtime packages contain JavaScript and type declarations, not
+TypeScript-only entrypoints. The CLI installs a matching prebuilt Go compiler
+through platform-specific optional npm dependencies; **application developers
+do not need Go**. Keep npm optional dependencies enabled.
+
+For maintainers, see [npm release setup and procedure](docs/releases.md),
+including the initial manual bootstrap and per-package Trusted Publisher
+configuration. No packages are published by `npm ci`, builds or pull-request CI.
 
 Preview serves the built application locally; it is not a production server.
 For deployment, configure the host to rewrite **HTML navigation requests** to
@@ -331,6 +352,8 @@ npm run build
 npx playwright install chromium
 npm run test:browser
 npm run size
+npm run packages:pack
+npm run packages:smoke
 ```
 
 Dependencies and native platform packages are pinned by `package-lock.json`.
@@ -346,6 +369,9 @@ dispatches. Linux and macOS jobs install Node.js 22 and the Go version from
 `go.mod`, then run `npm ci` (including the Go compiler build), formatting,
 `go vet`, race tests, framework tests, native type checking, full template checks,
 application tests, a production build, and runtime size measurement.
+The Linux job also packs all npm artifacts and tests an isolated application
+installation with its own dependencies, rejecting workspace symlinks and
+dependency resolution outside that installation.
 The Linux job also installs Chromium/system dependencies and runs the complete
 browser workflow. Failed browser runs upload traces and screenshots for seven
 days. No repository secrets or publishing credentials are required.
@@ -362,7 +388,8 @@ minified / 3,907 bytes gzip** (Vite 8.3, ES2022 target, gzip level 9).
 This is a deliberately small first version, not an Angular compatibility layer.
 There is no virtual DOM, runtime template compilation, reflection, global change
 detection, compulsory global store, SSR, or hydration. Packages are consumed from
-this source workspace; publishing/prebuilt compiler distribution is future work.
+either this source workspace or built npm artifacts with precompiled platform
+compilers. Registry publication requires the maintainer setup described above.
 
 The next stages are nested layouts; route/application providers; forms and
 validation; server-state/query caching; architectural-boundary checks;

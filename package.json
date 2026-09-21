@@ -4,16 +4,21 @@
   "type": "module",
   "workspaces": ["packages/*"],
   "scripts": {
-    "postinstall": "npm run compiler",
+    "postinstall": "npm run compiler && npm run packages:build",
     "compiler": "go build -o .angulus/bin/angulus-compiler ./cmd/angulus-compiler",
     "dev": "angulus serve --root examples/demo",
     "check": "angulus check --root examples/demo",
     "build": "angulus build --root examples/demo",
     "preview": "angulus preview --root examples/demo",
-    "pretest": "npm run compiler",
+    "pretest": "npm run compiler && npm run packages:build",
     "test": "go test ./... && tsx --test packages/core/test/*.test.ts packages/router/test/*.test.ts packages/tooling/test/*.test.*",
     "test:browser": "playwright test",
     "typecheck": "tsgo --noEmit -p tsconfig.json",
+    "packages:build": "node scripts/build-packages.mjs",
+    "packages:pack": "node scripts/pack.mjs",
+    "packages:smoke": "node scripts/smoke-packages.mjs",
+    "release:version": "node scripts/version.mjs",
+    "release:publish": "node scripts/publish.mjs",
     "size": "node scripts/size.mjs"
   },
   "devDependencies": {

@@ -1,0 +1,105 @@
+name: Publish npm packages
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: npm-release
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: Build and verify release artifacts
+    if: github.repository == 'angulusjs/angulus'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      CI: "true"
+      RELEASE_TAG: ${{ github.event.release.tag_name }}
+      RELEASE_PRERELEASE: ${{ github.event.release.prerelease }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.release.tag_name }}
+          persist-credentials: false
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22.22.3"
+          cache: npm
+
+      - run: npm ci
+      - run: go vet ./...
+      - run: go test -race ./...
+      - run: npm test
+      - run: npm run typecheck
+      - run: npm run build
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:browser
+      - run: npm run packages:pack -- --tag "$RELEASE_TAG"
+      - run: npm run packages:smoke
+      - name: Validate versions and tarball integrity without publishing
+        run: node scripts/publish.mjs --tag "$RELEASE_TAG" --dry-run
+
+      - name: Upload verified npm tarballs
+        uses: actions/upload-artifact@v6
+        with:
+          name: npm-release
+          path: |
+            .angulus/release/manifest.json
+            .angulus/release/tarballs/*.tgz
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload browser failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: release-browser-failure
+          path: test-results/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  publish:
+    name: Publish verified tarballs using npm OIDC
+    needs: prepare
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      RELEASE_TAG: ${{ github.event.release.tag_name }}
+      RELEASE_PRERELEASE: ${{ github.event.release.prerelease }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.release.tag_name }}
+          persist-credentials: false
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22.22.3"
+          package-manager-cache: false
+
+      - name: Install OIDC-capable npm CLI
+        run: npm install --global npm@12.0.2
+
+      - uses: actions/download-artifact@v7
+        with:
+          name: npm-release
+          path: .angulus/release
+
+      - name: Publish in dependency order with provenance
+        run: node scripts/publish.mjs --tag "$RELEASE_TAG"

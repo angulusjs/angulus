@@ -75,6 +75,14 @@ jobs:
       - name: Measure core runtime size
         run: npm run size
 
+      - name: Pack distributable npm packages
+        if: runner.os == 'Linux'
+        run: npm run packages:pack
+
+      - name: Test tarballs without workspace dependencies
+        if: runner.os == 'Linux'
+        run: npm run packages:smoke
+
       - name: Install Chromium and system dependencies
         if: runner.os == 'Linux'
         run: npx playwright install --with-deps chromium
