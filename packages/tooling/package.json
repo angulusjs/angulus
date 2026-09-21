@@ -1,6 +1,6 @@
 {
   "name": "@angulus/tooling",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Angulus CLI, compiler integration and Vite plugin",
   "license": "MIT",
   "repository": {
@@ -8,8 +8,15 @@
     "url": "https://github.com/angulusjs/angulus.git",
     "directory": "packages/tooling"
   },
-  "publishConfig": { "access": "public" },
-  "files": ["src/**/*.mjs", "types", "README.md", "LICENSE"],
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "src/**/*.mjs",
+    "types",
+    "README.md",
+    "LICENSE"
+  ],
   "type": "module",
   "bin": {
     "angulus": "./src/cli.mjs"

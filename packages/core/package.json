@@ -1,6 +1,6 @@
 {
   "name": "@angulus/core",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Fine-grained reactive runtime for Angulus applications",
   "license": "MIT",
   "repository": {
@@ -8,8 +8,14 @@
     "url": "https://github.com/angulusjs/angulus.git",
     "directory": "packages/core"
   },
-  "publishConfig": { "access": "public" },
-  "files": ["dist", "README.md", "LICENSE"],
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
