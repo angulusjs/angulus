@@ -1,6 +1,6 @@
 {
   "name": "@angulus/router",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Lazy client-side router for Angulus applications",
   "license": "MIT",
   "repository": {
@@ -28,6 +28,6 @@
   },
   "sideEffects": false,
   "dependencies": {
-    "@angulus/core": "0.1.1"
+    "@angulus/core": "0.2.0"
   }
 }
