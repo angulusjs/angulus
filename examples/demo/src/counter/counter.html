@@ -1,0 +1,32 @@
+<section class="counter">
+  <h1>Angulus counter</h1>
+  <p>Class components. Go templates. Fine-grained updates.</p>
+  <div class="controls">
+    <strong id="count">Count: {{ count() }}</strong>
+    <button id="increment" (click)="increment()">Increment</button>
+    <demo-badge [value]="count()" (reset)="reset($event)" />
+  </div>
+  @if (reachedLimit()) {
+    <p id="limit">Reached ten!</p>
+  } @else {
+    <p id="limit">Keep counting.</p>
+  }
+  @switch (parity()) {
+    @case ("even") { <span id="parity">Even</span> }
+    @default { <span id="parity">Odd</span> }
+  }
+  <label>Name <input aria-label="Name" [(value)]="name" /></label>
+  <p id="greeting">Hello, {{ name() }}!</p>
+  <div class="controls">
+    <button id="reverse" (click)="reverse()">Reverse list</button>
+    <button id="remove" (click)="remove()">Remove last</button>
+  </div>
+  <ul>
+    @for (item of items(); track item.id) {
+      <li [title]="item.label">
+        <span>{{ $index }}: {{ item.label }}</span>
+        <input [value]="item.label" />
+      </li>
+    }
+  </ul>
+</section>

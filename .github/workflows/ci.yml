@@ -1,0 +1,93 @@
+name: Angulus CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Verify (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-14]
+    env:
+      CI: "true"
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install locked dependencies and compile Go
+        run: npm ci
+
+      - name: Check Go formatting
+        shell: bash
+        run: |
+          unformatted="$(gofmt -l cmd internal)"
+          if [ -n "$unformatted" ]; then
+            printf 'Go files need formatting:\n%s\n' "$unformatted"
+            exit 1
+          fi
+
+      - name: Go static analysis
+        run: go vet ./...
+
+      - name: Go race tests
+        run: go test -race ./...
+
+      - name: Compiler, runtime, router and tooling tests
+        run: npm test
+
+      - name: Native TypeScript check
+        run: npm run typecheck
+
+      - name: Full demo template check
+        run: npm run check
+
+      - name: Demo application tests
+        run: npm exec -- angulus test --root examples/demo
+
+      - name: Production build
+        run: npm run build
+
+      - name: Measure core runtime size
+        run: npm run size
+
+      - name: Install Chromium and system dependencies
+        if: runner.os == 'Linux'
+        run: npx playwright install --with-deps chromium
+
+      - name: Browser integration tests
+        if: runner.os == 'Linux'
+        run: npm run test:browser
+
+      - name: Upload browser failure diagnostics
+        if: failure() && runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-failure-${{ matrix.os }}
+          path: test-results/
+          if-no-files-found: ignore
+          retention-days: 7

@@ -1,0 +1,33 @@
+{
+  "name": "angulus-workspace",
+  "private": true,
+  "type": "module",
+  "workspaces": ["packages/*"],
+  "scripts": {
+    "postinstall": "npm run compiler",
+    "compiler": "go build -o .angulus/bin/angulus-compiler ./cmd/angulus-compiler",
+    "dev": "angulus serve --root examples/demo",
+    "check": "angulus check --root examples/demo",
+    "build": "angulus build --root examples/demo",
+    "preview": "angulus preview --root examples/demo",
+    "pretest": "npm run compiler",
+    "test": "go test ./... && tsx --test packages/core/test/*.test.ts packages/router/test/*.test.ts packages/tooling/test/*.test.*",
+    "test:browser": "playwright test",
+    "typecheck": "tsgo --noEmit -p tsconfig.json",
+    "size": "node scripts/size.mjs"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "@types/node": "22.19.15",
+    "@jridgewell/sourcemap-codec": "1.6.0",
+    "@typescript/native-preview": "7.0.0-dev.20260707.2",
+    "happy-dom": "20.14.5",
+    "magic-string": "0.30.21",
+    "tsx": "4.23.15",
+    "typescript": "6.0.3",
+    "vite": "8.3.0",
+    "postcss": "8.5.28",
+    "postcss-value-parser": "4.2.0",
+    "postcss-selector-parser": "7.1.6"
+  }
+}

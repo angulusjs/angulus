@@ -1,0 +1,11 @@
+:root {
+  font-family: system-ui, sans-serif;
+  color: #162638;
+  background: #f4f7fb;
+}
+body { max-width: 820px; margin: 48px auto; padding: 0 24px; }
+header { display: flex; gap: 24px; margin-bottom: 32px; }
+a { color: #2548a8; }
+button, input { font: inherit; padding: 8px 14px; border: 1px solid #b9c8dd; border-radius: 6px; }
+button { cursor: pointer; background: white; }
+button:hover { background: #e8effd; }
