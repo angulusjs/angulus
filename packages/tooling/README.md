@@ -14,6 +14,11 @@ dependencies. **Go is not required in application projects.** Keep optional
 dependencies enabled. Supported targets: macOS x64/arm64, Linux x64/arm64/arm,
 and Windows x64/arm64. Node.js 22.12+ is required.
 
+Applications using `"types": ["node"]` in `tsconfig.json`, including the demo,
+must also install `npm install --save-dev @types/node@22`. These types are also
+needed by the generated component tests, which import `node:test` and
+`node:assert`. The checker inherits your application's TypeScript configuration.
+
 Commands: `angulus serve`, `check [--json]`, `build`, `preview`, `test`, and
 `generate component <name>`. All accept `--root <project-directory>`.
 

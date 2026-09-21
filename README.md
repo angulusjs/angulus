@@ -44,6 +44,17 @@ TypeScript-only entrypoints. The CLI installs a matching prebuilt Go compiler
 through platform-specific optional npm dependencies; **application developers
 do not need Go**. Keep npm optional dependencies enabled.
 
+If your application's `tsconfig.json` includes `"types": ["node"]` (as the demo
+does), or its tests import `node:test` / `node:assert`, install Node.js types in
+the application too:
+
+```sh
+npm install --save-dev @types/node@22
+```
+
+Angulus preserves the application's TypeScript configuration; it does not
+provide ambient Node.js types automatically.
+
 For maintainers, see [npm release setup and procedure](docs/releases.md),
 including the initial manual bootstrap and per-package Trusted Publisher
 configuration. No packages are published by `npm ci`, builds or pull-request CI.
