@@ -95,6 +95,7 @@ for (const method of ["spawn", "spawnSync", "execFile", "execFileSync"]) {
 syncBuiltinESMExports();
 `);
   const guardedEnv = { NODE_OPTIONS: `--import=${pathToFileURL(guard).href}` };
+  await copyFile(resolve(root, "scripts/package-isolation.mjs"), resolve(smoke, "package-isolation.mjs"));
   const probe = resolve(project, "probe.mjs");
   await writeFile(probe, `
 import assert from "node:assert/strict";
@@ -104,6 +105,7 @@ import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { signal, computed } from "@angulus/core";
 import { createRouter } from "@angulus/router";
+import { checkInstalledDependencies } from "../package-isolation.mjs";
 const nodeModules = ${JSON.stringify(nodeModules)};
 function inside(file) {
   const part = relative(nodeModules, file);
@@ -117,38 +119,7 @@ async function checkTree(directory) {
   }
 }
 await checkTree(nodeModules);
-const visitedPackages = new Set();
-async function checkDependencies(manifestFile) {
-  if (visitedPackages.has(manifestFile)) return;
-  visitedPackages.add(manifestFile);
-  const manifest = JSON.parse(await readFile(manifestFile, "utf8"));
-  const require = createRequire(manifestFile);
-  const dependencies = {
-    ...manifest.dependencies,
-    ...manifest.peerDependencies,
-    ...manifest.optionalDependencies,
-  };
-  for (const name of Object.keys(dependencies)) {
-    const optional = Object.hasOwn(manifest.optionalDependencies ?? {}, name)
-      || manifest.peerDependenciesMeta?.[name]?.optional;
-    let dependencyManifest;
-    for (const searchPath of require.resolve.paths(name) ?? []) {
-      try {
-        dependencyManifest = await realpath(resolve(searchPath, name, "package.json"));
-        break;
-      } catch (error) {
-        if (error.code !== "ENOENT" && error.code !== "ENOTDIR") throw error;
-      }
-    }
-    if (!dependencyManifest) {
-      assert.ok(optional, "Missing installed dependency " + name + " required by " + manifest.name);
-      continue;
-    }
-    inside(dependencyManifest);
-    await checkDependencies(dependencyManifest);
-  }
-}
-await checkDependencies(${JSON.stringify(resolve(project, "package.json"))});
+await checkInstalledDependencies(${JSON.stringify(resolve(project, "package.json"))}, nodeModules);
 const toolingRequire = createRequire(${JSON.stringify(resolve(tooling, "package.json"))});
 for (const name of ["@angulus/core", "@angulus/router", "@angulus/tooling/vite"]) {
   const file = await realpath(fileURLToPath(import.meta.resolve(name)));

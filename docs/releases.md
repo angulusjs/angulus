@@ -124,7 +124,10 @@ After publishing `0.1.0`, configure all ten Trusted Publishers, and release
    `.angulus/release/smoke/project` with its own `node_modules`. That smoke test
    rejects workspace symlinks and dependency resolution outside the installation,
    checks actual imports and CLI checks/tests/build, and verifies operation
-   without Go.
+   without Go. The dependency audit skips optional packages whose `os`, `cpu`,
+   or Linux `libc` metadata excludes the host (for example, musl binaries on a
+   glibc runner). Compatible optional packages still cannot resolve from the
+   ancestor workspace; unknown libc is checked conservatively, not skipped.
 6. Review the `npm` environment approval. The publisher downloads the verified
    tarballs from the same run, verifies their SHA-512 integrity and tag/version
    agreement, preflights the npm registry, and publishes with OIDC and provenance.
