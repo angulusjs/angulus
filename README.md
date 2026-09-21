@@ -214,6 +214,8 @@ angulus generate component profile
 
 `serve` uses Vite, local-only binding by default, and a strict port: an occupied
 port produces an error instead of silently selecting another port.
+Startup failures exit nonzero after pending compiler startup and shutdown finish;
+no compiler or file watcher is intentionally left running after a failed bind.
 `build` must pass the full template and TypeScript check before Vite runs.
 `test` executes the application's configured command, not the framework suite.
 Generation creates TS/HTML/CSS and a runnable test; existing files are protected
@@ -347,6 +349,7 @@ application tests, a production build, and runtime size measurement.
 The Linux job also installs Chromium/system dependencies and runs the complete
 browser workflow. Failed browser runs upload traces and screenshots for seven
 days. No repository secrets or publishing credentials are required.
+The actions themselves use Node.js 24; application commands still use Node.js 22.
 
 `npm run size` reports real minified and gzip sizes of **all core exports**,
 excluding router, application, sourcemaps, and development tools. The gzip target

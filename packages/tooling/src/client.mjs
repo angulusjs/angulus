@@ -41,11 +41,18 @@ export class CompilerClient {
   #sequence = 0;
   #closing = false;
   #exit;
+  #starting;
+  #shutdown;
 
   get pid() { return this.#child?.pid; }
 
-  async start() {
-    if (this.#child) return;
+  start() {
+    if (this.#shutdown) return Promise.reject(new Error("Angulus compiler has been closed"));
+    this.#starting ??= this.#start();
+    return this.#starting;
+  }
+
+  async #start() {
     this.#child = spawn(await compilerBinary(), [], { stdio: ["pipe", "pipe", "pipe"] });
     this.#child.stderr.on("data", data => process.stderr.write(data));
     const fail = error => {
@@ -101,15 +108,25 @@ export class CompilerClient {
     });
   }
 
-  async close() {
-    if (!this.#child || this.#closing) return;
-    if (this.#child.exitCode === null && this.#child.signalCode === null) {
-      this.#child.stdin.write(`${JSON.stringify({ version: 1, id: ++this.#sequence, method: "shutdown" })}\n`);
-      this.#child.stdin.end();
+  close() {
+    this.#shutdown ??= this.#close();
+    return this.#shutdown;
+  }
+
+  async #close() {
+    // Startup may still be resolving/building the binary without a child to stop.
+    try { await this.#starting; }
+    finally {
+      this.#closing = true;
+      if (this.#child) {
+        if (this.#child.exitCode === null && this.#child.signalCode === null) {
+          this.#child.stdin.write(`${JSON.stringify({ version: 1, id: ++this.#sequence, method: "shutdown" })}\n`);
+          this.#child.stdin.end();
+        }
+        const timer = setTimeout(() => this.#child.kill("SIGKILL"), 1500);
+        try { await this.#exit; }
+        finally { clearTimeout(timer); }
+      }
     }
-    this.#closing = true;
-    const timer = setTimeout(() => this.#child.kill("SIGKILL"), 1500);
-    await this.#exit;
-    clearTimeout(timer);
   }
 }

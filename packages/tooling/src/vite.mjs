@@ -38,6 +38,7 @@ export function angulus(options = {}) {
   let command;
   let logger;
   let watcherListener;
+  let shutdown;
 
   const emit = (event) => {
     if (options.onEvent) options.onEvent({ version: 1, ...event });
@@ -49,7 +50,10 @@ export function angulus(options = {}) {
       }
     }
   };
-  const start = () => startup ??= project.start();
+  const start = () => {
+    if (closed) return Promise.reject(new Error('Angulus Vite plugin has been closed'));
+    return startup ??= project.start();
+  };
   const ignored = file => /(^|[/\\])(node_modules|dist|\.angulus|\.git)([/\\]|$)/.test(path.relative(root, file));
   const tracked = file => [...project.dependencies.values()].some(dependencies => dependencies.has(file));
   const reportFailure = (error) => [{
@@ -65,8 +69,9 @@ export function angulus(options = {}) {
         let diagnostics;
         try {
           await start();
+          if (closed) break;
           diagnostics = await project.check();
-          server?.watcher.add([...new Set([...project.dependencies.values()].flatMap(dependencies => [...dependencies]))]);
+          if (!closed) server?.watcher.add([...new Set([...project.dependencies.values()].flatMap(dependencies => [...dependencies]))]);
         } catch (error) {
           diagnostics = reportFailure(error);
         }
@@ -98,12 +103,18 @@ export function angulus(options = {}) {
     clearTimeout(timer);
     timer = setTimeout(runChecks, 25);
   };
-  const close = async () => {
-    if (closed) return;
+  const close = () => {
+    if (shutdown) return shutdown;
     closed = true;
     clearTimeout(timer);
     if (watcherListener) server?.watcher.off('all', watcherListener);
-    await project?.close();
+    shutdown = (async () => {
+      try {
+        await startup;
+        await checking;
+      } finally { await project?.close(); }
+    })();
+    return shutdown;
   };
 
   return {

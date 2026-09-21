@@ -3,7 +3,7 @@ import test from 'node:test';
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { spawn, spawnSync } from 'node:child_process';
+import { spawn, spawnSync, type SpawnSyncReturns } from 'node:child_process';
 import { EventEmitter, once } from 'node:events';
 import net from 'node:net';
 import { fileURLToPath } from 'node:url';
@@ -85,6 +85,95 @@ test('SPA fallback is limited to HTML navigation, excluding APIs and assets', ()
   assert.equal(isNavigationRequest(request('/route', '*/*')), false);
   assert.equal(isNavigationRequest(request('/route', 'text/html', 'POST')), false);
 });
+
+test('occupied port exits promptly with a failure in text and JSON modes', async () => {
+  await fixture(async root => {
+    fs.writeFileSync(path.join(root, 'index.html'), '<!doctype html><title>Port test</title>');
+    const socket = net.createServer();
+    await new Promise<void>(resolve => socket.listen(0, '127.0.0.1', resolve));
+    const address = socket.address();
+    assert.ok(address && typeof address !== 'string');
+    try {
+      for (const json of [false, true]) {
+        for (let attempt = 0; attempt < 3; attempt++) {
+          const result: SpawnSyncReturns<string> = spawnSync(process.execPath, [
+            cli, 'serve', '--root', root, '--host', '127.0.0.1', '--port', String(address.port),
+            ...(json ? ['--json'] : []),
+          ], { cwd: workspace, encoding: 'utf8', timeout: 10_000, killSignal: 'SIGKILL' });
+          assert.ifError(result.error);
+          assert.equal(result.signal, null, result.stdout + result.stderr);
+          assert.equal(result.status, 1, result.stdout + result.stderr);
+          assert.match(result.stdout + result.stderr, /port .*already in use/i);
+          if (json) {
+            const events = result.stdout.trim().split('\n').map(line => JSON.parse(line));
+            assert.ok(events.some(event => event.type === 'error' && /already in use/.test(event.message)));
+            assert.ok(events.every(event => event.type !== 'listening'));
+          }
+        }
+      }
+    } finally {
+      await new Promise<void>((resolve, reject) => socket.close(error => error ? reject(error) : resolve()));
+    }
+  });
+});
+
+function deferred() {
+  let release!: () => void;
+  const promise = new Promise<void>(resolve => { release = resolve; });
+  return { promise, release };
+}
+
+for (const stage of ['startup', 'checking']) {
+  test(`plugin shutdown waits for ${stage} without restarting watches`, { timeout: 5000 }, async () => {
+    const entered = deferred();
+    const work = deferred();
+    let closes = 0;
+    let checks = 0;
+    let watched = 0;
+    let closed = false;
+    const events: { type: string }[] = [];
+    const project = {
+      dependencies: new Map<string, Set<string>>(),
+      async start() {
+        if (stage === 'startup') { entered.release(); await work.promise; }
+      },
+      async check() {
+        checks++;
+        if (stage === 'checking') { entered.release(); await work.promise; }
+        return [];
+      },
+      invalidate() {},
+      async close() { closes++; },
+    };
+    const watcher = Object.assign(new EventEmitter(), { add() { watched++; } });
+    const plugin = angulus({ project, onEvent: (event: { type: string }) => events.push(event) });
+    plugin.configResolved({ root: workspace, command: 'serve' });
+    plugin.configureServer({
+      watcher, middlewares: { use() {} },
+      ws: { send() { assert.fail('No browser updates are allowed after shutdown'); } },
+    });
+    try {
+      await entered.promise;
+      const closing = plugin.closeBundle();
+      assert.equal(plugin.closeBundle(), closing);
+      const finished = closing.then(() => { closed = true; });
+      await Promise.resolve();
+      assert.equal(closed, false);
+      assert.equal(closes, 0);
+      work.release();
+      await finished;
+      assert.equal(closes, 1);
+      assert.equal(checks, stage === 'startup' ? 0 : 1);
+      assert.equal(watched, 0);
+      assert.equal(watcher.listenerCount('all'), 0);
+      assert.deepEqual(events.map(event => event.type), ['checking']);
+      await assert.rejects(plugin.buildStart(), /closed/);
+    } finally {
+      work.release();
+      await plugin.closeBundle();
+    }
+  });
+}
 
 test('plugin shares one project, watches dependencies, uses CSS pipeline and reloads templates', async () => {
   const file = path.join(workspace, 'component.ts');
