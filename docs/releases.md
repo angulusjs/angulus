@@ -94,6 +94,9 @@ then publishes real artifacts in dependency order. npm may request 2FA.
 It is forbidden in GitHub Actions; it is not an automatic token fallback.
 It does not claim GitHub provenance for a local build.
 
+The publisher invokes `npm stage publish <tarball>` for both manual bootstrap
+and OIDC releases. The local npm CLI must support the `stage` command.
+
 After publishing `0.1.0`, configure all ten Trusted Publishers, and release
 `0.1.1` (or another new version) through GitHub. Do not attempt to overwrite
 `0.1.0`.

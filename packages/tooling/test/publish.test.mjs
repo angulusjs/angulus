@@ -86,7 +86,7 @@ test("registry failures and conflicting existing releases are never silently ski
   await assert.rejects(publicationPlan(sample, { fetchMetadata: async () => new Response("{}") }), /Invalid npm metadata/);
 });
 
-test("partial releases resume only identical versions and publish in dependency order", async () => {
+test("partial releases skip identical published versions and stage remaining artifacts in dependency order", async () => {
   let index = 0;
   const plan = await publicationPlan(sample, {
     fetchMetadata: async () => {
@@ -96,20 +96,22 @@ test("partial releases resume only identical versions and publish in dependency 
   });
   const calls = [];
   await publishPackages(sample, plan, { execute: async args => { calls.push(args); } });
-  assert.equal(calls.length, 8);
-  assert.deepEqual(calls.map(args => args[1]), sample.packages.slice(2).map(item => item.tarball));
-  assert.ok(calls.every(args => args.includes("--provenance") && args.includes("--ignore-scripts") && args.includes("latest")));
-  assert.equal(calls.at(-1)[1], sample.packages.at(-1).tarball);
+  assert.deepEqual(calls, sample.packages.slice(2).map(item => [
+    "stage", "publish", item.tarball, "--access", "public", "--tag", "latest",
+    "--ignore-scripts", "--registry", "https://registry.npmjs.org", "--provenance",
+  ]));
 });
 
-test("prerelease uses next and manual bootstrap does not request CI provenance", async () => {
+test("manual bootstrap stages prereleases with next and without CI provenance", async () => {
   const calls = [];
   await publishPackages({ ...sample, distTag: "next" }, [{ ...sample.packages[0], action: "publish" }], {
     bootstrap: true,
     execute: async args => { calls.push(args); },
   });
-  assert.ok(calls[0].includes("next"));
-  assert.ok(!calls[0].includes("--provenance"));
+  assert.deepEqual(calls, [[
+    "stage", "publish", sample.packages[0].tarball, "--access", "public", "--tag", "next",
+    "--ignore-scripts", "--registry", "https://registry.npmjs.org",
+  ]]);
 });
 
 test("a late stable release cannot roll back the registry's latest version", async () => {
