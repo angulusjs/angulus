@@ -103,7 +103,7 @@ export async function publishPackages(artifacts, plan, { bootstrap = false, exec
       continue;
     }
     await execute([
-      "publish", item.tarball, "--access", "public", "--tag", artifacts.distTag,
+      "stage", "publish", item.tarball, "--access", "public", "--tag", artifacts.distTag,
       "--ignore-scripts", "--registry", registry,
       ...(!bootstrap ? ["--provenance"] : []),
     ]);
