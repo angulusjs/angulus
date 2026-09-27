@@ -1,0 +1,2 @@
+.actions { display: flex; flex-wrap: wrap; gap: 12px; }
+[role="alert"] { color: #a32222; }

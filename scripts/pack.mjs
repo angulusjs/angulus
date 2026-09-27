@@ -36,7 +36,7 @@ export function validatePackageManifests(manifests) {
   const version = manifests[0].version;
   releaseVersion(`v${version}`);
   if (manifests.some(manifest => manifest.version !== version)) throw new Error("All Angulus package versions must match.");
-  for (const name of ["router", "forms"]) {
+  for (const name of ["router", "forms", "http"]) {
     const manifest = manifests.find(item => item.name === `@angulus/${name}`);
     if (manifest?.dependencies?.["@angulus/core"] !== version) throw new Error(`@angulus/${name} must depend on the exact core release version.`);
   }
@@ -45,7 +45,7 @@ export function validatePackageManifests(manifests) {
 
 export async function packPackages(args = process.argv.slice(2)) {
   if (args.length && (args.length !== 2 || args[0] !== "--tag")) throw new Error("Usage: npm run packages:pack -- [--tag v0.1.0]");
-  const manifests = await Promise.all(["core", "router", "forms", "tooling"].map(async name =>
+  const manifests = await Promise.all(["core", "router", "forms", "http", "tooling"].map(async name =>
     JSON.parse(await readFile(resolve(root, "packages", name, "package.json"), "utf8"))));
   const version = validatePackageManifests(manifests);
   if (args.length && releaseVersion(args[1]).version !== version) throw new Error(`Release tag ${args[1]} does not match package version ${version}.`);

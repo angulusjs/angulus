@@ -1,0 +1,33 @@
+{
+  "name": "@angulus/http",
+  "version": "0.2.0",
+  "description": "JSON HTTP client and reactive resource helpers for Angulus applications",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/angulusjs/angulus.git",
+    "directory": "packages/http"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "sideEffects": false,
+  "dependencies": {
+    "@angulus/core": "0.2.0"
+  }
+}

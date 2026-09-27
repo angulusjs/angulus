@@ -10,6 +10,7 @@ const router = createRouter({
   routes: [
     { path: "/", load: () => import("./counter/counter").then(module => module.CounterComponent) },
     { path: "/forms", load: () => import("./forms/forms").then(module => module.FormsComponent) },
+    { path: "/http", load: () => import("./http/http").then(module => module.HttpComponent) },
     {
       path: "/products/:id",
       load: () => import("./products/product").then(module => module.ProductComponent),

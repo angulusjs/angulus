@@ -9,7 +9,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const readManifest = name => readFile(resolve(root, "packages", name, "package.json"), "utf8").then(JSON.parse);
 
 test("publishable runtime manifests expose compiled ESM and declaration files", async () => {
-  for (const name of ["core", "router", "forms"]) {
+  for (const name of ["core", "router", "forms", "http"]) {
     const manifest = await readManifest(name);
     assert.equal(manifest.exports["."].import, "./dist/index.js");
     assert.equal(manifest.exports["."].types, "./dist/index.d.ts");
@@ -25,12 +25,16 @@ test("publishable runtime manifests expose compiled ESM and declaration files", 
   const core = await readManifest("core");
   const router = await readManifest("router");
   const forms = await readManifest("forms");
+  const http = await readManifest("http");
   const tooling = await readManifest("tooling");
   assert.equal(router.version, core.version);
   assert.equal(forms.version, core.version);
+  assert.equal(http.version, core.version);
   assert.equal(tooling.version, core.version);
   assert.equal(router.dependencies["@angulus/core"], core.version);
   assert.equal(forms.dependencies["@angulus/core"], core.version);
+  assert.equal(http.dependencies["@angulus/core"], core.version);
+  assert.equal(http.sideEffects, false);
   assert.equal(forms.sideEffects, false);
   assert.equal(tooling.optionalDependencies, undefined, "Unpublished compiler dependencies belong only in staged manifests");
   assert.ok(tooling.files.includes("types"));
@@ -47,19 +51,28 @@ test("publishable runtime manifests expose compiled ESM and declaration files", 
   });
 });
 
-test("packing validates forms version and exact core dependency before building", async () => {
-  const manifests = await Promise.all(["core", "router", "forms", "tooling"].map(readManifest));
+test("packing validates runtime versions and exact core dependency before building", async () => {
+  const manifests = await Promise.all(["core", "router", "forms", "http", "tooling"].map(readManifest));
   const version = manifests[0].version;
   assert.equal(validatePackageManifests(manifests), version);
   const forms = manifests.find(manifest => manifest.name === "@angulus/forms");
+  const http = manifests.find(manifest => manifest.name === "@angulus/http");
   forms.version = `${version}-mismatch`;
   assert.throws(() => validatePackageManifests(manifests), /versions must match/);
   forms.version = version;
+  http.version = `${version}-mismatch`;
+  assert.throws(() => validatePackageManifests(manifests), /versions must match/);
+  http.version = version;
   for (const dependency of [`^${version}`, `~${version}`, "*", "0.0.0", undefined]) {
     forms.dependencies["@angulus/core"] = dependency;
     assert.throws(() => validatePackageManifests(manifests), /@angulus\/forms must depend on the exact core release version/);
   }
   forms.dependencies["@angulus/core"] = version;
+  for (const dependency of [`^${version}`, `~${version}`, "*", "0.0.0", undefined]) {
+    http.dependencies["@angulus/core"] = dependency;
+    assert.throws(() => validatePackageManifests(manifests), /@angulus\/http must depend on the exact core release version/);
+  }
+  http.dependencies["@angulus/core"] = version;
   const router = manifests.find(manifest => manifest.name === "@angulus/router");
   router.dependencies["@angulus/core"] = `^${version}`;
   assert.throws(() => validatePackageManifests(manifests), /@angulus\/router must depend on the exact core release version/);

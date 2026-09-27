@@ -20,6 +20,9 @@ publishing workflow. The framework is experimental, not production-certified.
 - **Reactive forms.** The optional `@angulus/forms` package provides typed
   controls and nested groups, synchronous and cross-field validation,
   dirty/touched state, and resets using existing signal and template bindings.
+- **HTTP client and reactive resources.** `@angulus/http` combines explicit JSON
+  API calls with signal-driven GET resources, loading/error state, reload,
+  cancellation of superseded requests, and automatic lifecycle cleanup.
 - **Scoped styles and lifecycle cleanup.** Component CSS and animation names
   are scoped automatically. Disposal scopes release reactive bindings, event
   handlers, and subscriptions when their components or template branches end.
@@ -50,7 +53,7 @@ npm run dev
 Installation builds the Go compiler. The single development command starts the
 demo at `http://localhost:5173`. No hand-written Vite configuration is needed.
 Go must remain available when rebuilding the compiler from source. Installation
-also builds the core/router JavaScript and TypeScript declarations.
+also builds the runtime packages' JavaScript and TypeScript declarations.
 
 ```sh
 npm run check
@@ -266,6 +269,39 @@ Install `@angulus/forms` alongside a matching `@angulus/core` release containing
 forms support. See [the forms API and template examples](packages/forms/README.md)
 or open `/forms` in the source demo. Dynamic arrays, async validators, and
 disabled-control exclusion are not part of this first version.
+
+## HTTP and backend APIs
+
+`@angulus/http` provides a Fetch-based JSON client and `httpResource`, inspired
+by Angular Resource:
+
+```ts
+import { signal } from "@angulus/core";
+import { createHttpClient, httpResource } from "@angulus/http";
+
+const api = createHttpClient();
+const id = signal(1);
+const user = httpResource<{ id: number; name: string }>(
+  () => `/api/users/${id()}`,
+  { client: api },
+);
+
+// In an explicit action handler, not in a reactive request factory:
+await api.patch(`/api/users/${id()}`, { name: "Ada" });
+user.reload();
+```
+
+Resources expose `value()`, `error()`, `status()`, `isLoading()`, and `hasValue()`.
+Changing request signals starts a new GET and aborts the previous one; returning
+`undefined` pauses loading. `reload()` retains resolved data while refreshing.
+Component-owned resources are disposed automatically; call `destroy()` for
+standalone resources. POST/PUT/PATCH/DELETE remain explicit client operations.
+
+Generics describe expected JSON but do not validate it: use `parse` for runtime
+response validation. Install `@angulus/http` with a matching core release
+containing HTTP support. See [the HTTP API and backend setup](packages/http/README.md)
+or open `/http` in the source demo. Shared caching, deduplication, and automatic
+retry are not implemented.
 
 ## Router and bootstrap
 

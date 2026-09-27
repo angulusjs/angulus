@@ -1,0 +1,24 @@
+<section>
+  <h1>HTTP resources</h1>
+  <p>This demo loads local JSON fixtures. The same API works with your backend.</p>
+  <div class="actions">
+    <button (click)="select(1)">User 1</button>
+    <button (click)="select(2)">User 2</button>
+    <button (click)="select(404)">Missing user</button>
+    <button (click)="pause()">Pause</button>
+    <button [disabled]="user.isLoading() || user.status() === 'idle'" (click)="user.reload()">Reload</button>
+  </div>
+  <p id="http-state">Status: {{ user.status() }}</p>
+  @if (user.isLoading()) {
+    <p role="status">Loading user...</p>
+  }
+  @if (user.status() === "error") {
+    <p role="alert">{{ errorMessage() }}</p>
+  }
+  @if (user.hasValue()) {
+    <p id="http-user">User {{ user.value()?.id }}: {{ user.value()?.name }}</p>
+  }
+  @if (user.status() === "idle") {
+    <p>Select a user to start loading.</p>
+  }
+</section>

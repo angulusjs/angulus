@@ -15,9 +15,9 @@ test("release versions enforce exact semantic tags and separate prerelease dist-
   }
 });
 
-test("release package set includes forms after its exact core dependency", () => {
-  assert.equal(packageNames.length, 11);
-  assert.deepEqual(packageNames.slice(7), ["@angulus/core", "@angulus/router", "@angulus/forms", "@angulus/tooling"]);
+test("release package set includes http after its exact core dependency", () => {
+  assert.equal(packageNames.length, 12);
+  assert.deepEqual(packageNames.slice(7), ["@angulus/core", "@angulus/router", "@angulus/forms", "@angulus/http", "@angulus/tooling"]);
 });
 
 async function artifacts(t) {
@@ -66,15 +66,24 @@ test("release rejects missing, duplicate and escaping tarballs", async t => {
   await assert.rejects(validateArtifacts(file, "v0.1.0"), /exactly seven/);
 });
 
-test("release rejects missing forms artifacts and mismatched forms versions", async t => {
+test("release rejects missing runtime artifacts and mismatched runtime versions", async t => {
   const { manifest, file, save } = await artifacts(t);
   const forms = manifest.packages.find(item => item.name === "@angulus/forms");
+  const http = manifest.packages.find(item => item.name === "@angulus/http");
   forms.version = "0.2.0";
   await save();
   await assert.rejects(validateArtifacts(file, "v0.1.0"), /Version mismatch for @angulus\/forms/);
+  forms.version = "0.1.0";
+  http.version = "0.2.0";
+  await save();
+  await assert.rejects(validateArtifacts(file, "v0.1.0"), /Version mismatch for @angulus\/http/);
+  manifest.packages = manifest.packages.filter(item => item !== http);
+  await save();
+  await assert.rejects(validateArtifacts(file, "v0.1.0"), /plus core, router, forms, http and tooling/);
+  manifest.packages.push(http);
   manifest.packages = manifest.packages.filter(item => item !== forms);
   await save();
-  await assert.rejects(validateArtifacts(file, "v0.1.0"), /plus core, router, forms and tooling/);
+  await assert.rejects(validateArtifacts(file, "v0.1.0"), /plus core, router, forms, http and tooling/);
 });
 
 const sample = {
@@ -151,7 +160,7 @@ test("publishing stops at the first npm failure", async () => {
 test("version helper keeps all package versions and internal contracts aligned", async t => {
   const root = await mkdtemp(resolve(tmpdir(), "angulus-version-test-"));
   t.after(() => rm(root, { recursive: true }));
-  for (const name of ["core", "router", "forms", "tooling"]) {
+  for (const name of ["core", "router", "forms", "http", "tooling"]) {
     const directory = resolve(root, "packages", name);
     await mkdir(directory, { recursive: true });
     await writeFile(resolve(directory, "package.json"), JSON.stringify({
@@ -163,7 +172,7 @@ test("version helper keeps all package versions and internal contracts aligned",
   }
   let locks = 0;
   await updateVersion("0.2.0-rc.1", { root, refreshLock: async directory => { assert.equal(directory, root); locks++; } });
-  for (const name of ["core", "router", "forms", "tooling"]) {
+  for (const name of ["core", "router", "forms", "http", "tooling"]) {
     const manifest = JSON.parse(await readFile(resolve(root, "packages", name, "package.json"), "utf8"));
     assert.equal(manifest.version, "0.2.0-rc.1");
     assert.equal(manifest.dependencies["@angulus/core"], manifest.version);

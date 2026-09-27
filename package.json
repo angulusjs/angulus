@@ -11,7 +11,7 @@
     "build": "angulus build --root examples/demo",
     "preview": "angulus preview --root examples/demo",
     "pretest": "npm run compiler && npm run packages:build",
-    "test": "go test ./... && tsx --test packages/core/test/*.test.ts packages/router/test/*.test.ts packages/forms/test/*.test.ts packages/tooling/test/*.test.*",
+    "test": "go test ./... && tsx --test packages/core/test/*.test.ts packages/router/test/*.test.ts packages/forms/test/*.test.ts packages/http/test/*.test.ts packages/tooling/test/*.test.*",
     "test:browser": "playwright test",
     "typecheck": "tsgo --noEmit -p tsconfig.json",
     "packages:build": "node scripts/build-packages.mjs",

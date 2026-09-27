@@ -16,6 +16,7 @@ All packages share one version:
 - `@angulus/router`: ESM JavaScript and declarations; depends on the same core version.
 - `@angulus/forms`: typed signal-based forms, synchronous validators and declarations;
   depends on the exact same core version.
+- `@angulus/http`: JSON HTTP client and reactive resources; depends on the exact same core version.
 - `@angulus/tooling`: CLI, Vite plugin and native TypeScript checker integration.
 - `@angulus/compiler-darwin-x64`
 - `@angulus/compiler-darwin-arm64`
@@ -50,7 +51,7 @@ tests run on the platform executing the packaging check.
    belongs to existing packages. For a new package, first publish its actual
    tested release from an authorized maintainer machine using npm login/2FA;
    do not create placeholder packages or introduce an automation token.
-5. For **each of the eleven packages**, open npm package settings → Trusted
+5. For **each of the twelve packages**, open npm package settings → Trusted
    Publisher and add GitHub Actions:
 
    | Field | Value |
@@ -99,13 +100,14 @@ It does not claim GitHub provenance for a local build.
 The publisher invokes `npm stage publish <tarball>` for both manual bootstrap
 and OIDC releases. The local npm CLI must support the `stage` command.
 
-After publishing `0.2.0`, configure all eleven Trusted Publishers, and release
+After publishing `0.2.0`, configure all twelve Trusted Publishers, and release
 `0.2.1` (or another new version) through GitHub. Do not attempt to overwrite
 `0.2.0`.
 
-When adding a package to an existing release train (such as `@angulus/forms` in
-`0.2.0`), bootstrap its first tested release and configure its Trusted Publisher
-before using OIDC. Existing package settings do not cover new package names.
+When adding a package to an existing release train (such as `@angulus/forms` or
+`@angulus/http` in `0.2.0`), bootstrap its first tested release and configure its
+Trusted Publisher before using OIDC. Existing package settings do not cover new
+package names.
 
 ## Normal release
 
@@ -122,7 +124,7 @@ before using OIDC. Existing package settings do not cover new package names.
    npm run release:publish -- --tag v0.2.1 --dry-run
    ```
 
-   Review and commit the four package manifests and lockfile. The version helper
+   Review and commit the five package manifests and lockfile. The version helper
    does not commit, tag, publish, or push.
 3. Create and push the tag **`v0.2.1`** pointing at that reviewed commit.
 4. Create and **publish a GitHub Release** for that exact tag.
@@ -160,7 +162,7 @@ Use a semantic prerelease version such as `0.2.0-rc.1` and tag
   rejected.
 
 Install a prerelease with matching versions for the public packages you use
-(`@angulus/core`, `@angulus/router`, `@angulus/forms` and `@angulus/tooling`).
+(`@angulus/core`, `@angulus/router`, `@angulus/forms`, `@angulus/http` and `@angulus/tooling`).
 
 ## Failures and reruns
 

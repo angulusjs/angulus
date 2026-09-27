@@ -1,0 +1,7 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "paths": { "@angulus/core": ["../core/src/index.ts"] }
+  },
+  "include": ["src/**/*.ts", "test/**/*.ts"]
+}

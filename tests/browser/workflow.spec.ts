@@ -61,6 +61,62 @@ function command(args: string[], root: string): Promise<{ code: number | null; o
   });
 }
 
+test("HTTP resources load, refresh, recover from errors and pause through template bindings", async ({ page, request }) => {
+  const root = resolve(workspace, "examples/demo");
+  const port = await freePort();
+  const url = `http://127.0.0.1:${port}`;
+  const server = launch("serve", root, port);
+  const pageErrors: string[] = [];
+  page.on("pageerror", error => pageErrors.push(error.message));
+  let release!: () => void;
+  const responseReady = new Promise<void>(resolve => { release = resolve; });
+  try {
+    await expect.poll(async () => {
+      if (server.child.exitCode !== null) throw new Error(server.output());
+      try { return (await request.get(url, { headers: { accept: "text/html" } })).status(); } catch { return 0; }
+    }).toBe(200);
+    await page.goto(`${url}/http`);
+    await expect(page.locator("h1")).toHaveText("HTTP resources");
+    await expect(page.locator("#http-user")).toHaveText("User 1: Ada Lovelace");
+    await expect(page.locator("#http-state")).toHaveText("Status: resolved");
+    await page.route("**/data/users/1.json", async route => {
+      await responseReady;
+      await route.fulfill({ json: { id: 1, name: "Ada refreshed" } });
+    });
+    await page.getByRole("button", { name: "Reload", exact: true }).click();
+    await expect(page.locator("#http-state")).toHaveText("Status: reloading");
+    await expect(page.getByRole("status")).toHaveText("Loading user...");
+    await expect(page.locator("#http-user")).toHaveText("User 1: Ada Lovelace");
+    await expect(page.getByRole("button", { name: "Reload", exact: true })).toBeDisabled();
+    release();
+    await expect(page.locator("#http-user")).toHaveText("User 1: Ada refreshed");
+    await expect(page.locator("#http-state")).toHaveText("Status: resolved");
+    await page.unroute("**/data/users/1.json");
+    await page.getByRole("button", { name: "User 2", exact: true }).click();
+    await expect(page.locator("#http-user")).toHaveText("User 2: Grace Hopper");
+    await page.getByRole("button", { name: "Missing user" }).click();
+    await expect(page.getByRole("alert")).toHaveText("HTTP 404: unable to load user.");
+    await expect(page.locator("#http-state")).toHaveText("Status: error");
+    await expect(page.locator("#http-user")).toHaveCount(0);
+    await page.route("**/data/users/404.json", route => route.fulfill({ json: { id: 404, name: "Recovered" } }));
+    await page.getByRole("button", { name: "Reload", exact: true }).click();
+    await expect(page.locator("#http-user")).toHaveText("User 404: Recovered");
+    await expect(page.getByRole("alert")).toHaveCount(0);
+    await page.getByRole("button", { name: "Pause", exact: true }).click();
+    await expect(page.locator("#http-state")).toHaveText("Status: idle");
+    await expect(page.locator("#http-user")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Reload", exact: true })).toBeDisabled();
+    await page.getByRole("link", { name: "Counter", exact: true }).click();
+    await expect(page.locator("#count")).toHaveText("Count: 0");
+    await page.getByRole("link", { name: "HTTP", exact: true }).click();
+    await expect(page.locator("#http-user")).toHaveText("User 1: Ada Lovelace");
+    expect(pageErrors).toEqual([]);
+  } finally {
+    release();
+    await stop(server.child);
+  }
+});
+
 test("reactive forms bind values, validate, track interaction and reset", async ({ page, request }) => {
   const root = resolve(workspace, "examples/demo");
   const port = await freePort();

@@ -66,6 +66,22 @@ age.value.set("18");
 // @ts-expect-error Published groups must preserve their field names.
 form.controls.missing;
 `);
+  await writeFile(resolve(project, "src/http-contract.ts"), `
+import { createHttpClient, httpResource, HttpError, type HttpClient, type HttpResourceRequest } from "@angulus/http";
+import type { Signal } from "@angulus/core";
+const client: HttpClient = createHttpClient({ headers: { Accept: "application/json" }, credentials: "same-origin" });
+const resource = httpResource<{ name: string }>(() => "/api/users/1", { client });
+const value: Signal<{ name: string } | undefined> = resource.value;
+const error: Signal<unknown> = resource.error;
+const status: Signal<"idle" | "loading" | "reloading" | "resolved" | "error"> = resource.status;
+const request: HttpResourceRequest = { url: "/api/users/1", headers: { Accept: "application/json" } };
+const failure = new HttpError("failed", 500, "Internal Server Error", "/api/users/1", new Headers(), null);
+void [client, value, error, status, request, failure];
+// @ts-expect-error HTTP resources accept GET descriptors only.
+const invalid: HttpResourceRequest = { url: "/api/users/1", method: "POST" };
+// @ts-expect-error Resource state is read-only.
+resource.value.set({ name: "Ada" });
+`);
   const marker = resolve(smoke, "go-invoked");
   const goStub = process.platform === "win32" ? "go.cmd" : "go";
   await writeFile(resolve(stubs, goStub), process.platform === "win32"
@@ -125,6 +141,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { signal, computed } from "@angulus/core";
 import { createRouter } from "@angulus/router";
 import { formControl, formGroup, Validators } from "@angulus/forms";
+import { createHttpClient, httpResource, HttpError } from "@angulus/http";
 import { buildLibrary } from "@angulus/tooling/library";
 import { checkInstalledDependencies } from "../package-isolation.mjs";
 const nodeModules = ${JSON.stringify(nodeModules)};
@@ -142,7 +159,7 @@ async function checkTree(directory) {
 await checkTree(nodeModules);
 await checkInstalledDependencies(${JSON.stringify(resolve(project, "package.json"))}, nodeModules);
 const toolingRequire = createRequire(${JSON.stringify(resolve(tooling, "package.json"))});
-for (const name of ["@angulus/core", "@angulus/router", "@angulus/forms", "@angulus/tooling/vite", "@angulus/tooling/library"]) {
+for (const name of ["@angulus/core", "@angulus/router", "@angulus/forms", "@angulus/http", "@angulus/tooling/vite", "@angulus/tooling/library"]) {
   const file = await realpath(fileURLToPath(import.meta.resolve(name)));
   inside(file);
   assert.ok(!file.endsWith(".ts"), "Runtime exports must be compiled JS: " + file);
@@ -173,6 +190,25 @@ assert.deepEqual(form.value(), { name: "" });
 assert.equal(form.pristine(), true);
 assert.equal(form.untouched(), true);
 assert.equal(form.invalid(), true);
+assert.equal(typeof createHttpClient, "function");
+assert.equal(typeof httpResource, "function");
+assert.equal(new HttpError("failed", 500, "Internal Server Error", "/api", new Headers(), null).status, 500);
+const userId = signal(1);
+const api = createHttpClient({
+  fetch: async url => new Response(JSON.stringify({ url: String(url) }), { headers: { "Content-Type": "application/json" } }),
+});
+const user = httpResource(() => "/api/users/" + userId(), { client: api });
+await new Promise(resolve => setImmediate(resolve));
+assert.equal(user.status(), "resolved");
+assert.deepEqual(user.value(), { url: "/api/users/1" });
+userId.set(2);
+await new Promise(resolve => setImmediate(resolve));
+assert.deepEqual(user.value(), { url: "/api/users/2" });
+assert.equal(user.reload(), true);
+await new Promise(resolve => setImmediate(resolve));
+assert.equal(user.status(), "resolved");
+user.destroy();
+assert.equal(user.status(), "idle");
 assert.equal(typeof buildLibrary, "function");
 const { compilerLocation } = await import(pathToFileURL(${JSON.stringify(resolve(tooling, "src/binary.mjs"))}));
 const location = await compilerLocation();

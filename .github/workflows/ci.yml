@@ -57,7 +57,7 @@ jobs:
       - name: Go race tests
         run: go test -race ./...
 
-      - name: Compiler, runtime, router, forms and tooling tests
+      - name: Compiler, runtime, router, forms, http and tooling tests
         run: npm test
 
       - name: Native TypeScript check
