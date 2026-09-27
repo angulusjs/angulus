@@ -8,7 +8,7 @@ const workspace = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 export const registry = "https://registry.npmjs.org";
 export const packageNames = [
   ...["darwin-x64", "darwin-arm64", "linux-x64", "linux-arm64", "linux-arm", "win32-x64", "win32-arm64"].map(target => `@angulus/compiler-${target}`),
-  "@angulus/core", "@angulus/router", "@angulus/tooling",
+  "@angulus/core", "@angulus/router", "@angulus/forms", "@angulus/tooling",
 ];
 
 export function releaseVersion(tag) {
@@ -25,7 +25,7 @@ export async function validateArtifacts(manifestFile, tag, { read = readFile, ca
   if (manifest.version !== release.version || !Array.isArray(manifest.packages)) throw new Error("Release tag and packed manifest version must match.");
   const names = manifest.packages.map(item => item.name);
   if (names.length !== packageNames.length || new Set(names).size !== names.length || packageNames.some(name => !names.includes(name))) {
-    throw new Error("Release must contain exactly seven platform compiler packages plus core, router and tooling.");
+    throw new Error("Release must contain exactly seven platform compiler packages plus core, router, forms and tooling.");
   }
   const root = await canonical(dirname(manifestFile));
   const result = [];

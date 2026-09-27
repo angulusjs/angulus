@@ -61,6 +61,61 @@ function command(args: string[], root: string): Promise<{ code: number | null; o
   });
 }
 
+test("reactive forms bind values, validate, track interaction and reset", async ({ page, request }) => {
+  const root = resolve(workspace, "examples/demo");
+  const port = await freePort();
+  const url = `http://127.0.0.1:${port}`;
+  const server = launch("serve", root, port);
+  const pageErrors: string[] = [];
+  page.on("pageerror", error => pageErrors.push(error.message));
+  try {
+    await expect.poll(async () => {
+      if (server.child.exitCode !== null) throw new Error(server.output());
+      try { return (await request.get(url, { headers: { accept: "text/html" } })).status(); } catch { return 0; }
+    }).toBe(200);
+    await page.goto(`${url}/forms`);
+    await expect(page.locator("h1")).toHaveText("Reactive forms");
+    await expect(page.locator("#form-state")).toHaveText("Dirty: false; touched: false; valid: false");
+    await expect(page.getByRole("alert")).toHaveCount(0);
+    await page.getByLabel("Display name").fill("A");
+    await expect(page.locator("#form-state")).toHaveText("Dirty: true; touched: false; valid: false");
+    await page.getByLabel("Email", { exact: true }).focus();
+    await expect(page.locator("#name-error")).toHaveText("Enter at least two characters.");
+    await page.getByRole("button", { name: "Save profile" }).click();
+    await expect(page.locator("#email-error")).toBeVisible();
+    await expect(page.locator("#confirmation-error")).toBeVisible();
+    await expect(page.getByRole("status")).toHaveCount(0);
+    await page.getByLabel("Display name").fill("Ada");
+    await page.getByLabel("Email", { exact: true }).fill("not-an-email");
+    await expect(page.locator("#email-error")).toBeVisible();
+    await page.getByLabel("Email", { exact: true }).fill("ada@example.com");
+    await page.getByLabel("Confirm email").fill("other@example.com");
+    await expect(page.locator("#mismatch-error")).toBeVisible();
+    await expect(page.locator("#email-error")).toHaveCount(0);
+    await page.getByLabel("Confirm email").fill("ada@example.com");
+    await expect(page.getByRole("alert")).toHaveCount(0);
+    await expect(page.locator("#form-state")).toHaveText("Dirty: true; touched: true; valid: true");
+    await page.getByRole("button", { name: "Save profile" }).click();
+    await expect(page.getByRole("status")).toHaveText("Saved locally: ada@example.com");
+    await expect(page).toHaveURL(`${url}/forms`);
+    await page.getByRole("button", { name: "Reset form" }).click();
+    await expect(page.getByLabel("Display name")).toHaveValue("");
+    await expect(page.getByLabel("Email", { exact: true })).toHaveValue("");
+    await expect(page.getByLabel("Confirm email")).toHaveValue("");
+    await expect(page.locator("#form-state")).toHaveText("Dirty: false; touched: false; valid: false");
+    await expect(page.getByRole("alert")).toHaveCount(0);
+    await expect(page.getByRole("status")).toHaveCount(0);
+    await page.getByLabel("Display name").fill("Discarded");
+    await page.getByRole("link", { name: "Counter", exact: true }).click();
+    await expect(page.locator("#count")).toHaveText("Count: 0");
+    await page.getByRole("link", { name: "Forms", exact: true }).click();
+    await expect(page.getByLabel("Display name")).toHaveValue("");
+    expect(pageErrors).toEqual([]);
+  } finally {
+    await stop(server.child);
+  }
+});
+
 test("compiler -> Vite -> browser, HMR, diagnostics, SPA, build, preview and shutdown", async ({ page, request }) => {
   const root = await mkdtemp(resolve(workspace, "examples/.e2e-"));
   await cp(resolve(workspace, "examples/demo"), root, { recursive: true, filter: path => !path.split(/[\\/]/).some(part => part === "dist" || part === ".angulus") });

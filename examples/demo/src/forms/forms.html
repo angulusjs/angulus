@@ -1,0 +1,46 @@
+<section>
+  <h1>Reactive forms</h1>
+  <p>Typed controls, synchronous validation, and ordinary template bindings.</p>
+  <form [noValidate]="true" (submit)="submit($event)">
+    <label for="profile-name">Display name</label>
+    <input id="profile-name" aria-describedby="name-error"
+           [(value)]="form.controls.name.value"
+           (blur)="form.controls.name.markAsTouched()" />
+    <div class="validation">
+      @if (form.controls.name.touched() && form.controls.name.invalid()) {
+        <p id="name-error" role="alert">Enter at least two characters.</p>
+      }
+    </div>
+    <label for="profile-email">Email</label>
+    <input id="profile-email" type="text" inputmode="email" aria-describedby="email-error"
+           [(value)]="form.controls.email.value"
+           (blur)="form.controls.email.markAsTouched()" />
+    <div class="validation">
+      @if (form.controls.email.touched() && form.controls.email.invalid()) {
+        <p id="email-error" role="alert">Enter a valid email address.</p>
+      }
+    </div>
+    <label for="profile-confirmation">Confirm email</label>
+    <input id="profile-confirmation" type="text" inputmode="email" aria-describedby="confirmation-error mismatch-error"
+           [(value)]="form.controls.confirmation.value"
+           (blur)="form.controls.confirmation.markAsTouched()" />
+    <div class="validation">
+      @if (form.controls.confirmation.touched() && form.controls.confirmation.invalid()) {
+        <p id="confirmation-error" role="alert">Confirm your email address.</p>
+      }
+    </div>
+    <div class="validation">
+      @if (form.controls.confirmation.touched() && form.errors()?.emailMismatch) {
+        <p id="mismatch-error" role="alert">Email addresses must match.</p>
+      }
+    </div>
+    <div class="actions">
+      <button type="submit">Save profile</button>
+      <button type="button" (click)="reset()">Reset form</button>
+    </div>
+  </form>
+  <p id="form-state">Dirty: {{ form.dirty() }}; touched: {{ form.touched() }}; valid: {{ form.valid() }}</p>
+  @if (submitted()) {
+    <p role="status">Saved locally: {{ submitted() }}</p>
+  }
+</section>

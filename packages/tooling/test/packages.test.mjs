@@ -3,16 +3,19 @@ import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
-import { packPackages, targets } from "../../../scripts/pack.mjs";
+import { packPackages, targets, validatePackageManifests } from "../../../scripts/pack.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const readManifest = name => readFile(resolve(root, "packages", name, "package.json"), "utf8").then(JSON.parse);
 
 test("publishable runtime manifests expose compiled ESM and declaration files", async () => {
-  for (const name of ["core", "router"]) {
+  for (const name of ["core", "router", "forms"]) {
     const manifest = await readManifest(name);
     assert.equal(manifest.exports["."].import, "./dist/index.js");
     assert.equal(manifest.exports["."].types, "./dist/index.d.ts");
+    assert.equal(manifest.exports["."].default, "./dist/index.js");
+    assert.equal(manifest.main, "./dist/index.js");
+    assert.equal(manifest.types, "./dist/index.d.ts");
     assert.equal(manifest.type, "module");
     assert.equal(manifest.license, "MIT");
     assert.equal(manifest.publishConfig.access, "public");
@@ -21,10 +24,14 @@ test("publishable runtime manifests expose compiled ESM and declaration files", 
   }
   const core = await readManifest("core");
   const router = await readManifest("router");
+  const forms = await readManifest("forms");
   const tooling = await readManifest("tooling");
   assert.equal(router.version, core.version);
+  assert.equal(forms.version, core.version);
   assert.equal(tooling.version, core.version);
   assert.equal(router.dependencies["@angulus/core"], core.version);
+  assert.equal(forms.dependencies["@angulus/core"], core.version);
+  assert.equal(forms.sideEffects, false);
   assert.equal(tooling.optionalDependencies, undefined, "Unpublished compiler dependencies belong only in staged manifests");
   assert.ok(tooling.files.includes("types"));
   assert.deepEqual(tooling.exports["./vite"], {
@@ -32,11 +39,30 @@ test("publishable runtime manifests expose compiled ESM and declaration files", 
     import: "./src/vite.mjs",
     default: "./src/vite.mjs",
   });
+
   assert.deepEqual(tooling.exports["./library"], {
     types: "./types/library.d.mts",
     import: "./src/library.mjs",
     default: "./src/library.mjs",
   });
+});
+
+test("packing validates forms version and exact core dependency before building", async () => {
+  const manifests = await Promise.all(["core", "router", "forms", "tooling"].map(readManifest));
+  const version = manifests[0].version;
+  assert.equal(validatePackageManifests(manifests), version);
+  const forms = manifests.find(manifest => manifest.name === "@angulus/forms");
+  forms.version = `${version}-mismatch`;
+  assert.throws(() => validatePackageManifests(manifests), /versions must match/);
+  forms.version = version;
+  for (const dependency of [`^${version}`, `~${version}`, "*", "0.0.0", undefined]) {
+    forms.dependencies["@angulus/core"] = dependency;
+    assert.throws(() => validatePackageManifests(manifests), /@angulus\/forms must depend on the exact core release version/);
+  }
+  forms.dependencies["@angulus/core"] = version;
+  const router = manifests.find(manifest => manifest.name === "@angulus/router");
+  router.dependencies["@angulus/core"] = `^${version}`;
+  assert.throws(() => validatePackageManifests(manifests), /@angulus\/router must depend on the exact core release version/);
 });
 
 test("compiler package targets cover the seven supported npm OS/CPU pairs", () => {

@@ -5,6 +5,36 @@ a Go template compiler, fine-grained reactive DOM updates, and Vite.
 This repository includes distributable npm packages and a GitHub Releases
 publishing workflow. The framework is experimental, not production-certified.
 
+## Main features
+
+- **Class-based TypeScript components.** Define components with `@Component`,
+  separate HTML templates and CSS files, and explicit component imports.
+- **Fine-grained reactivity.** Signals, computed values, and effects update the
+  DOM directly, with batched updates and no virtual DOM or global change detection.
+- **Expressive templates.** Use interpolation, property and event bindings,
+  two-way binding for text inputs, and built-in `@if`, `@for`, and `@switch`.
+  Keyed lists preserve DOM nodes and component instances when reordered.
+- **Typed component contracts.** Declare required or optional inputs and typed
+  outputs. Native TypeScript checks template expressions, DOM events, and
+  component bindings, reporting errors against the original source files.
+- **Reactive forms.** The optional `@angulus/forms` package provides typed
+  controls and nested groups, synchronous and cross-field validation,
+  dirty/touched state, and resets using existing signal and template bindings.
+- **Scoped styles and lifecycle cleanup.** Component CSS and animation names
+  are scoped automatically. Disposal scopes release reactive bindings, event
+  handlers, and subscriptions when their components or template branches end.
+- **Ahead-of-time Go compiler.** Templates compile to imperative DOM operations;
+  no template parser or compiler is shipped to the browser. Published tooling
+  uses prebuilt platform binaries, so application developers do not need Go.
+- **Lazy SPA routing.** Route parameters, lazy component imports, browser
+  history, not-found handling, and retryable load errors are supported.
+- **Integrated Vite workflow.** One CLI handles development, type checking,
+  production builds, preview, application tests, and component generation.
+  CSS HMR preserves component state; HTML and TypeScript edits reload the page.
+  Structured JSON diagnostics support editor and automation workflows.
+- **Publishable component libraries.** Build reusable components into npm-ready
+  packages with ESM, TypeScript declarations, selector metadata, and scoped CSS.
+
 ## Quick start from source
 
 Requirements: Node.js 22.12+ (tested on 22.22), npm, and Go 1.26+.
@@ -206,6 +236,36 @@ be read in constructors/field initializers; they are available during rendering
 and mount hooks. Children mount before parent hooks. Cleanup runs in reverse
 registration order, and all cleanups are attempted even if one throws.
 See [the complete core API](packages/core/README.md).
+
+## Forms
+
+`@angulus/forms` adds typed, signal-based controls and nested groups without
+new template syntax:
+
+```ts
+import { formControl, formGroup, Validators } from "@angulus/forms";
+
+const form = formGroup({
+  name: formControl("", { validators: [Validators.required, Validators.minLength(2)] }),
+  email: formControl("", { validators: [Validators.required, Validators.email] }),
+});
+
+form.controls.name.value.set("Ada");
+form.value(); // { name: "Ada", email: "" }
+form.valid(); // false: email is required
+form.markAsTouched();
+form.reset();
+```
+
+In a component, bind text inputs with `[(value)]="form.controls.name.value"`
+and mark interaction with `(blur)="form.controls.name.markAsTouched()"`.
+Groups aggregate validity and dirty/touched state, and can validate relationships
+between fields. Validation is synchronous; DOM updates use core signal batching.
+
+Install `@angulus/forms` alongside a matching `@angulus/core` release containing
+forms support. See [the forms API and template examples](packages/forms/README.md)
+or open `/forms` in the source demo. Dynamic arrays, async validators, and
+disabled-control exclusion are not part of this first version.
 
 ## Router and bootstrap
 
@@ -413,7 +473,7 @@ detection, compulsory global store, SSR, or hydration. Packages are consumed fro
 either this source workspace or built npm artifacts with precompiled platform
 compilers. Registry publication requires the maintainer setup described above.
 
-The next stages are nested layouts; route/application providers; forms and
-validation; server-state/query caching; architectural-boundary checks;
+The next stages are nested layouts; route/application providers; advanced forms
+(dynamic arrays and async validation); server-state/query caching; architectural-boundary checks;
 multi-application workspaces; `inspect --json` and `check --affected`; an LSP;
 version migrations; and localization. None has a placeholder public API here.

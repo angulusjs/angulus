@@ -9,6 +9,7 @@ const router = createRouter({
   outlet,
   routes: [
     { path: "/", load: () => import("./counter/counter").then(module => module.CounterComponent) },
+    { path: "/forms", load: () => import("./forms/forms").then(module => module.FormsComponent) },
     {
       path: "/products/:id",
       load: () => import("./products/product").then(module => module.ProductComponent),

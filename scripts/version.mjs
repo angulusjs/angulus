@@ -16,7 +16,7 @@ function updateLock(root) {
 
 export async function updateVersion(version, { root = workspace, refreshLock = updateLock } = {}) {
   releaseVersion(`v${version}`);
-  const directories = ["core", "router", "tooling"];
+  const directories = ["core", "router", "forms", "tooling"];
   const manifests = await Promise.all(directories.map(async directory => {
     const file = resolve(root, "packages", directory, "package.json");
     return { file, manifest: JSON.parse(await readFile(file, "utf8")) };

@@ -15,6 +15,11 @@ test("release versions enforce exact semantic tags and separate prerelease dist-
   }
 });
 
+test("release package set includes forms after its exact core dependency", () => {
+  assert.equal(packageNames.length, 11);
+  assert.deepEqual(packageNames.slice(7), ["@angulus/core", "@angulus/router", "@angulus/forms", "@angulus/tooling"]);
+});
+
 async function artifacts(t) {
   const directory = await mkdtemp(resolve(tmpdir(), "angulus-release-test-"));
   t.after(() => rm(directory, { recursive: true }));
@@ -59,6 +64,17 @@ test("release rejects missing, duplicate and escaping tarballs", async t => {
   manifest.packages.pop();
   await save();
   await assert.rejects(validateArtifacts(file, "v0.1.0"), /exactly seven/);
+});
+
+test("release rejects missing forms artifacts and mismatched forms versions", async t => {
+  const { manifest, file, save } = await artifacts(t);
+  const forms = manifest.packages.find(item => item.name === "@angulus/forms");
+  forms.version = "0.2.0";
+  await save();
+  await assert.rejects(validateArtifacts(file, "v0.1.0"), /Version mismatch for @angulus\/forms/);
+  manifest.packages = manifest.packages.filter(item => item !== forms);
+  await save();
+  await assert.rejects(validateArtifacts(file, "v0.1.0"), /plus core, router, forms and tooling/);
 });
 
 const sample = {
@@ -135,22 +151,24 @@ test("publishing stops at the first npm failure", async () => {
 test("version helper keeps all package versions and internal contracts aligned", async t => {
   const root = await mkdtemp(resolve(tmpdir(), "angulus-version-test-"));
   t.after(() => rm(root, { recursive: true }));
-  for (const name of ["core", "router", "tooling"]) {
+  for (const name of ["core", "router", "forms", "tooling"]) {
     const directory = resolve(root, "packages", name);
     await mkdir(directory, { recursive: true });
     await writeFile(resolve(directory, "package.json"), JSON.stringify({
       name: `@angulus/${name}`, version: "0.1.0",
       dependencies: { "@angulus/core": "0.1.0", vite: "8.3.0" },
       peerDependencies: { "@angulus/router": "0.1.0" },
+      optionalDependencies: { "@angulus/forms": "0.1.0" },
     }));
   }
   let locks = 0;
   await updateVersion("0.2.0-rc.1", { root, refreshLock: async directory => { assert.equal(directory, root); locks++; } });
-  for (const name of ["core", "router", "tooling"]) {
+  for (const name of ["core", "router", "forms", "tooling"]) {
     const manifest = JSON.parse(await readFile(resolve(root, "packages", name, "package.json"), "utf8"));
     assert.equal(manifest.version, "0.2.0-rc.1");
     assert.equal(manifest.dependencies["@angulus/core"], manifest.version);
     assert.equal(manifest.peerDependencies["@angulus/router"], manifest.version);
+    assert.equal(manifest.optionalDependencies["@angulus/forms"], manifest.version);
     assert.equal(manifest.dependencies.vite, "8.3.0");
   }
   assert.equal(locks, 1);

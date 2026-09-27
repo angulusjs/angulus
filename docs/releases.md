@@ -14,6 +14,8 @@ All packages share one version:
 
 - `@angulus/core`: ESM JavaScript and TypeScript declarations.
 - `@angulus/router`: ESM JavaScript and declarations; depends on the same core version.
+- `@angulus/forms`: typed signal-based forms, synchronous validators and declarations;
+  depends on the exact same core version.
 - `@angulus/tooling`: CLI, Vite plugin and native TypeScript checker integration.
 - `@angulus/compiler-darwin-x64`
 - `@angulus/compiler-darwin-arm64`
@@ -48,7 +50,7 @@ tests run on the platform executing the packaging check.
    belongs to existing packages. For a new package, first publish its actual
    tested release from an authorized maintainer machine using npm login/2FA;
    do not create placeholder packages or introduce an automation token.
-5. For **each of the ten packages**, open npm package settings → Trusted
+5. For **each of the eleven packages**, open npm package settings → Trusted
    Publisher and add GitHub Actions:
 
    | Field | Value |
@@ -80,13 +82,13 @@ npm run typecheck
 npm run build
 npx playwright install chromium
 npm run test:browser
-npm run packages:pack -- --tag v0.1.0
+npm run packages:pack -- --tag v0.2.0
 npm run packages:smoke
-npm run release:publish -- --tag v0.1.0 --dry-run
+npm run release:publish -- --tag v0.2.0 --dry-run
 
 # Sign in interactively; do not put credentials in source or command arguments.
 npm login
-npm run release:publish -- --tag v0.1.0 --bootstrap
+npm run release:publish -- --tag v0.2.0 --bootstrap
 ```
 
 The bootstrap command validates all tarball hashes and registry versions first,
@@ -97,9 +99,13 @@ It does not claim GitHub provenance for a local build.
 The publisher invokes `npm stage publish <tarball>` for both manual bootstrap
 and OIDC releases. The local npm CLI must support the `stage` command.
 
-After publishing `0.1.0`, configure all ten Trusted Publishers, and release
-`0.1.1` (or another new version) through GitHub. Do not attempt to overwrite
-`0.1.0`.
+After publishing `0.2.0`, configure all eleven Trusted Publishers, and release
+`0.2.1` (or another new version) through GitHub. Do not attempt to overwrite
+`0.2.0`.
+
+When adding a package to an existing release train (such as `@angulus/forms` in
+`0.2.0`), bootstrap its first tested release and configure its Trusted Publisher
+before using OIDC. Existing package settings do not cover new package names.
 
 ## Normal release
 
@@ -107,18 +113,18 @@ After publishing `0.1.0`, configure all ten Trusted Publishers, and release
 2. Update the shared version and internal dependencies:
 
    ```sh
-   npm run release:version -- 0.1.1
+   npm run release:version -- 0.2.1
    npm ci
    npm test
    npm run typecheck
-   npm run packages:pack -- --tag v0.1.1
+   npm run packages:pack -- --tag v0.2.1
    npm run packages:smoke
-   npm run release:publish -- --tag v0.1.1 --dry-run
+   npm run release:publish -- --tag v0.2.1 --dry-run
    ```
 
-   Review and commit the three package manifests and lockfile. The version helper
+   Review and commit the four package manifests and lockfile. The version helper
    does not commit, tag, publish, or push.
-3. Create and push the tag **`v0.1.1`** pointing at that reviewed commit.
+3. Create and push the tag **`v0.2.1`** pointing at that reviewed commit.
 4. Create and **publish a GitHub Release** for that exact tag.
    Merely pushing a tag or saving a release draft does not publish npm packages.
 5. The preparation job checks out the tag, installs the lockfile, runs tests and
@@ -126,7 +132,8 @@ After publishing `0.1.0`, configure all ten Trusted Publishers, and release
    installs the tarballs into a dedicated application under
    `.angulus/release/smoke/project` with its own `node_modules`. That smoke test
    rejects workspace symlinks and dependency resolution outside the installation,
-   checks actual imports and CLI checks/tests/build, and verifies operation
+   checks actual imports, forms declarations and reactive validation/state,
+   and CLI checks/tests/build, and verifies operation
    without Go. The dependency audit skips optional packages whose `os`, `cpu`,
    or Linux `libc` metadata excludes the host (for example, musl binaries on a
    glibc runner). Compatible optional packages still cannot resolve from the
@@ -152,7 +159,8 @@ Use a semantic prerelease version such as `0.2.0-rc.1` and tag
 - Leading-zero versions, non-semantic tags and build-metadata suffixes are
   rejected.
 
-Install a prerelease with matching versions for all three public packages.
+Install a prerelease with matching versions for the public packages you use
+(`@angulus/core`, `@angulus/router`, `@angulus/forms` and `@angulus/tooling`).
 
 ## Failures and reruns
 
@@ -179,7 +187,7 @@ registry preflight is not a substitute for npm authorization.
 ```sh
 npm run packages:pack
 npm run packages:smoke
-npm run release:publish -- --tag v0.1.0 --dry-run
+npm run release:publish -- --tag v0.2.0 --dry-run
 ```
 
 The dry run validates the manifest and tarballs and prints the ordered plan.

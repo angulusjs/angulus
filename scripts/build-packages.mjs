@@ -9,8 +9,8 @@ const require = createRequire(import.meta.url);
 
 export async function buildPackages() {
   const tsgo = resolve(dirname(require.resolve("@typescript/native-preview/package.json")), "bin/tsgo");
-  // Router declarations resolve the built core package, so order is significant.
-  for (const name of ["core", "router"]) {
+  // Router and forms declarations resolve the built core package, so order is significant.
+  for (const name of ["core", "router", "forms"]) {
     await rm(resolve(root, "packages", name, "dist"), { recursive: true, force: true });
     const result = spawnSync(process.execPath, [tsgo, "-p", `packages/${name}/tsconfig.build.json`], {
       cwd: root, stdio: "inherit",

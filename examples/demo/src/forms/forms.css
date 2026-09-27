@@ -1,0 +1,5 @@
+form { display: grid; gap: 12px; max-width: 440px; }
+label { font-weight: 600; }
+[role="alert"] { color: #a32222; margin: 0; }
+.validation { min-height: 1.5em; }
+.actions { display: flex; gap: 12px; }

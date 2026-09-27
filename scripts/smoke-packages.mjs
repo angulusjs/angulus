@@ -50,6 +50,22 @@ const plugin: Plugin = angulus({
 const defaultPlugin: Plugin = defaultAngulus();
 void [plugin, defaultPlugin];
 `);
+  await writeFile(resolve(project, "src/forms-contract.ts"), `
+import { formControl, formGroup, Validators, type FormControl, type FormValue, type ValidatorFn } from "@angulus/forms";
+import type { Signal, WritableSignal } from "@angulus/core";
+const positive: ValidatorFn<number> = value => value > 0 ? null : { positive: true };
+const name: FormControl<string> = formControl("", { validators: [Validators.required] });
+const age = formControl(18, { validators: [positive] });
+const form = formGroup({ name, age });
+const value: Signal<{ name: string; age: number }> = form.value;
+const field: WritableSignal<string> = form.controls.name.value;
+const snapshot: FormValue<typeof form.controls> = value();
+void [field, snapshot];
+// @ts-expect-error Published controls must preserve their value type.
+age.value.set("18");
+// @ts-expect-error Published groups must preserve their field names.
+form.controls.missing;
+`);
   const marker = resolve(smoke, "go-invoked");
   const goStub = process.platform === "win32" ? "go.cmd" : "go";
   await writeFile(resolve(stubs, goStub), process.platform === "win32"
@@ -108,6 +124,7 @@ import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { signal, computed } from "@angulus/core";
 import { createRouter } from "@angulus/router";
+import { formControl, formGroup, Validators } from "@angulus/forms";
 import { buildLibrary } from "@angulus/tooling/library";
 import { checkInstalledDependencies } from "../package-isolation.mjs";
 const nodeModules = ${JSON.stringify(nodeModules)};
@@ -125,7 +142,7 @@ async function checkTree(directory) {
 await checkTree(nodeModules);
 await checkInstalledDependencies(${JSON.stringify(resolve(project, "package.json"))}, nodeModules);
 const toolingRequire = createRequire(${JSON.stringify(resolve(tooling, "package.json"))});
-for (const name of ["@angulus/core", "@angulus/router", "@angulus/tooling/vite", "@angulus/tooling/library"]) {
+for (const name of ["@angulus/core", "@angulus/router", "@angulus/forms", "@angulus/tooling/vite", "@angulus/tooling/library"]) {
   const file = await realpath(fileURLToPath(import.meta.resolve(name)));
   inside(file);
   assert.ok(!file.endsWith(".ts"), "Runtime exports must be compiled JS: " + file);
@@ -139,6 +156,23 @@ assert.equal(doubled(), 4);
 count.set(3);
 assert.equal(doubled(), 6);
 assert.equal(typeof createRouter, "function");
+const name = formControl("", { validators: [Validators.required] });
+const form = formGroup({ name });
+const greeting = computed(() => "Hello " + form.value().name);
+assert.equal(form.invalid(), true);
+assert.deepEqual(name.errors(), { required: true });
+assert.equal(greeting(), "Hello ");
+name.value.set("Angulus");
+name.markAsTouched();
+assert.equal(greeting(), "Hello Angulus");
+assert.equal(form.valid(), true);
+assert.equal(form.dirty(), true);
+assert.equal(form.touched(), true);
+form.reset();
+assert.deepEqual(form.value(), { name: "" });
+assert.equal(form.pristine(), true);
+assert.equal(form.untouched(), true);
+assert.equal(form.invalid(), true);
 assert.equal(typeof buildLibrary, "function");
 const { compilerLocation } = await import(pathToFileURL(${JSON.stringify(resolve(tooling, "src/binary.mjs"))}));
 const location = await compilerLocation();
