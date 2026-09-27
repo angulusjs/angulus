@@ -1,6 +1,6 @@
 {
   "name": "@angulus/forms",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Typed signal-based forms and synchronous validation for Angulus applications",
   "license": "MIT",
   "repository": {
@@ -28,6 +28,6 @@
   },
   "sideEffects": false,
   "dependencies": {
-    "@angulus/core": "0.2.0"
+    "@angulus/core": "0.3.0"
   }
 }
