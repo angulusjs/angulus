@@ -48,7 +48,7 @@ jobs:
       - run: npm run packages:pack -- --tag "$RELEASE_TAG"
       - run: npm run packages:smoke
       - name: Validate versions and tarball integrity without publishing
-        run: node scripts/publish.mjs --tag "$RELEASE_TAG" --dry-run
+        run: npm run release:publish -- --tag "$RELEASE_TAG" --dry-run
 
       - name: Upload verified npm tarballs
         uses: actions/upload-artifact@v6
@@ -94,7 +94,7 @@ jobs:
           package-manager-cache: false
 
       - name: Install OIDC-capable npm CLI
-        run: npm install --global npm@12.0.2
+        run: npm install --global npm@12.0.2 tsx@4.23.15
 
       - uses: actions/download-artifact@v7
         with:
@@ -102,4 +102,4 @@ jobs:
           path: .angulus/release
 
       - name: Publish in dependency order with provenance
-        run: node scripts/publish.mjs --tag "$RELEASE_TAG"
+        run: tsx scripts/publish.ts --tag "$RELEASE_TAG"

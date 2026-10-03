@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" fill="none" role="img" aria-labelledby="title desc">
+  <title id="title">Angulus</title>
+  <desc id="desc">An A constructed from folded violet and pink triangular ribbons.</desc>
+  <path d="M256 48 40 440H152L308 144Z" fill="#7354E8"/>
+  <path d="M256 48 256 248 360 440H472Z" fill="#B292FF"/>
+  <path d="M256 48 308 144 256 248Z" fill="#4931A8"/>
+  <path d="M152 440 208 336H416L360 440Z" fill="#EE6BAC"/>
+  <path d="M360 440 360 336H416Z" fill="#B63E84"/>
+</svg>

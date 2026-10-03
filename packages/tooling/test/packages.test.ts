@@ -3,10 +3,10 @@ import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
-import { packPackages, targets } from "../../../scripts/pack.mjs";
+import { packPackages, targets } from "../../../scripts/pack.js";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
-const readManifest = name => readFile(resolve(root, "packages", name, "package.json"), "utf8").then(JSON.parse);
+const readManifest = (name: string) => readFile(resolve(root, "packages", name, "package.json"), "utf8").then(JSON.parse);
 
 test("publishable runtime manifests expose compiled ESM and declaration files", async () => {
   for (const name of ["core", "router"]) {
@@ -27,15 +27,16 @@ test("publishable runtime manifests expose compiled ESM and declaration files", 
   assert.equal(router.dependencies["@angulus/core"], core.version);
   assert.equal(tooling.optionalDependencies, undefined, "Unpublished compiler dependencies belong only in staged manifests");
   assert.ok(tooling.files.includes("types"));
+  assert.ok(tooling.files.includes("dist"));
   assert.deepEqual(tooling.exports["./vite"], {
     types: "./types/vite.d.mts",
-    import: "./src/vite.mjs",
-    default: "./src/vite.mjs",
+    import: "./dist/vite.js",
+    default: "./dist/vite.js",
   });
   assert.deepEqual(tooling.exports["./library"], {
     types: "./types/library.d.mts",
-    import: "./src/library.mjs",
-    default: "./src/library.mjs",
+    import: "./dist/library.js",
+    default: "./dist/library.js",
   });
 });
 

@@ -12,6 +12,6 @@
     "types": ["node"],
     "skipLibCheck": true
   },
-  "include": ["packages/**/*.ts", "examples/demo/**/*.ts", "tests/**/*.ts", "playwright.config.ts"],
+  "include": ["packages/**/*.ts", "examples/demo/**/*.ts", "scripts/**/*.ts", "tests/**/*.ts", "playwright.config.ts"],
   "exclude": ["node_modules", "**/.angulus", "**/dist"]
 }

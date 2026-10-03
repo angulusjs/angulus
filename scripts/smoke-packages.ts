@@ -1,14 +1,15 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawnSync, type SpawnSyncReturns } from "node:child_process";
 import { chmod, copyFile, mkdir, readFile, readdir, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { validateArtifacts } from "./publish.mjs";
+import { checkInstalledDependencies } from "./package-isolation.js";
+import { validateArtifacts } from "./publish.js";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const release = resolve(root, ".angulus/release");
 
-async function copyDemo(source, destination) {
+async function copyDemo(source: string, destination: string): Promise<void> {
   await mkdir(destination, { recursive: true });
   for (const entry of await readdir(source, { withFileTypes: true })) {
     if (entry.name.startsWith(".") || ["node_modules", "dist"].includes(entry.name)) continue;
@@ -17,7 +18,7 @@ async function copyDemo(source, destination) {
   }
 }
 
-export async function smokePackages() {
+export async function smokePackages(): Promise<void> {
   const manifestFile = resolve(release, "manifest.json");
   const manifest = JSON.parse(await readFile(manifestFile, "utf8"));
   const artifacts = await validateArtifacts(manifestFile, `v${manifest.version}`);
@@ -57,7 +58,7 @@ void [plugin, defaultPlugin];
     : `#!${process.execPath}\nimport { writeFileSync } from 'node:fs'; writeFileSync(${JSON.stringify(marker)}, 'GO_MUST_NOT_RUN'); process.exit(99);\n`);
   await chmod(resolve(stubs, goStub), 0o755);
   const env = { ...process.env, NODE_PATH: "", NODE_OPTIONS: "", PATH: `${stubs}${process.platform === "win32" ? ";" : ":"}${process.env.PATH ?? ""}` };
-  function run(command, args, expected = 0, extraEnv = {}) {
+  function run(command: string, args: string[], expected = 0, extraEnv: NodeJS.ProcessEnv = {}): SpawnSyncReturns<string> {
     const result = spawnSync(command, args, { cwd: project, env: { ...env, ...extraEnv }, encoding: "utf8", timeout: 180_000 });
     if (result.error) throw result.error;
     if (expected === 0 && result.status !== 0) throw new Error(`${command} ${args.join(" ")} failed (${result.status}):\n${result.stdout}\n${result.stderr}`);
@@ -75,6 +76,7 @@ void [plugin, defaultPlugin];
   ];
   run(process.env.npm_execpath ? process.execPath : "npm", process.env.npm_execpath ? [process.env.npm_execpath, ...installArgs] : installArgs);
   const nodeModules = await realpath(resolve(project, "node_modules"));
+  await checkInstalledDependencies(resolve(project, "package.json"), nodeModules);
   const guard = resolve(smoke, "guard.mjs");
   const trace = resolve(smoke, "native-compiler.log");
   const tooling = resolve(nodeModules, "@angulus/tooling");
@@ -98,7 +100,6 @@ for (const method of ["spawn", "spawnSync", "execFile", "execFileSync"]) {
 syncBuiltinESMExports();
 `);
   const guardedEnv = { NODE_OPTIONS: `--import=${pathToFileURL(guard).href}` };
-  await copyFile(resolve(root, "scripts/package-isolation.mjs"), resolve(smoke, "package-isolation.mjs"));
   const probe = resolve(project, "probe.mjs");
   await writeFile(probe, `
 import assert from "node:assert/strict";
@@ -109,7 +110,6 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { signal, computed } from "@angulus/core";
 import { createRouter } from "@angulus/router";
 import { buildLibrary } from "@angulus/tooling/library";
-import { checkInstalledDependencies } from "../package-isolation.mjs";
 const nodeModules = ${JSON.stringify(nodeModules)};
 function inside(file) {
   const part = relative(nodeModules, file);
@@ -123,7 +123,6 @@ async function checkTree(directory) {
   }
 }
 await checkTree(nodeModules);
-await checkInstalledDependencies(${JSON.stringify(resolve(project, "package.json"))}, nodeModules);
 const toolingRequire = createRequire(${JSON.stringify(resolve(tooling, "package.json"))});
 for (const name of ["@angulus/core", "@angulus/router", "@angulus/tooling/vite", "@angulus/tooling/library"]) {
   const file = await realpath(fileURLToPath(import.meta.resolve(name)));
@@ -140,17 +139,17 @@ count.set(3);
 assert.equal(doubled(), 6);
 assert.equal(typeof createRouter, "function");
 assert.equal(typeof buildLibrary, "function");
-const { compilerLocation } = await import(pathToFileURL(${JSON.stringify(resolve(tooling, "src/binary.mjs"))}));
+const { compilerLocation } = await import(pathToFileURL(${JSON.stringify(resolve(tooling, "dist/binary.js"))}));
 const location = await compilerLocation();
 assert.equal(location.sourceRoot, undefined);
 assert.equal(location.binary, ${JSON.stringify(binary)});
-const { CompilerClient } = await import(pathToFileURL(${JSON.stringify(resolve(tooling, "src/client.mjs"))}));
+const { CompilerClient } = await import(pathToFileURL(${JSON.stringify(resolve(tooling, "dist/client.js"))}));
 const compiler = new CompilerClient();
 try { await compiler.start(); assert.ok(compiler.pid); } finally { await compiler.close(); }
 console.log("Plain Node runtime imports and installed native compiler passed.");
 `);
   run(process.execPath, [probe], 0, guardedEnv);
-  const cli = resolve(tooling, "src/cli.mjs");
+  const cli = resolve(tooling, "dist/cli.js");
   for (const command of ["check", "test", "build"]) {
     const before = await readFile(trace, "utf8");
     run(process.execPath, [cli, command, "--root", project], 0, guardedEnv);

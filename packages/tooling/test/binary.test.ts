@@ -1,22 +1,22 @@
-import { test } from "node:test";
+import { test, type TestContext } from "node:test";
 import assert from "node:assert/strict";
 import { cp, mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { compilerLocation } from "../src/binary.mjs";
+import { compilerLocation } from "../src/binary.js";
 
-const source = resolve(dirname(fileURLToPath(import.meta.url)), "../src/binary.mjs");
+const source = resolve(dirname(fileURLToPath(import.meta.url)), "../src/binary.ts");
 
-async function installedTooling(t) {
+async function installedTooling(t: TestContext) {
   const directory = await mkdtemp(resolve(tmpdir(), "angulus-binary-test-"));
   t.after(() => rm(directory, { recursive: true }));
   const root = resolve(directory, "node_modules/@angulus/tooling");
   await mkdir(resolve(root, "src"), { recursive: true });
   await writeFile(resolve(root, "package.json"), JSON.stringify({ name: "@angulus/tooling", version: "0.1.0", type: "module" }));
-  await cp(source, resolve(root, "src/binary.mjs"));
-  const { compilerLocation: locate } = await import(pathToFileURL(resolve(root, "src/binary.mjs")).href);
-  async function compiler(target, version = "0.1.0", name = `@angulus/compiler-${target}`) {
+  await cp(source, resolve(root, "src/binary.ts"));
+  const { compilerLocation: locate } = await import(pathToFileURL(resolve(root, "src/binary.ts")).href);
+  async function compiler(target: string, version = "0.1.0", name = `@angulus/compiler-${target}`): Promise<string> {
     const path = resolve(directory, `node_modules/@angulus/compiler-${target}`);
     await mkdir(resolve(path, "bin"), { recursive: true });
     await writeFile(resolve(path, "package.json"), JSON.stringify({ name, version }));

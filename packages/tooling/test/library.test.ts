@@ -1,15 +1,15 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { test, type TestContext } from "node:test";
 import { mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { Window } from "happy-dom";
 import { build, createServer } from "vite";
 import * as runtime from "@angulus/core";
-import { buildLibrary } from "../src/library.mjs";
-import { Project } from "../src/project.mjs";
-import { angulus } from "../src/vite.mjs";
-import { run, workspace } from "../src/client.mjs";
+import { buildLibrary } from "../src/library.js";
+import { Project } from "../src/project.js";
+import { angulus } from "../src/vite.js";
+import { run, workspace } from "../src/client.js";
 
 const config = {
   compilerOptions: {
@@ -25,14 +25,14 @@ const libraryManifest = {
   peerDependencies: { "@angulus/core": coreManifest.version },
 };
 
-async function write(root, files) {
+async function write(root: string, files: Record<string, unknown>): Promise<void> {
   for (const [name, contents] of Object.entries(files)) {
     await mkdir(dirname(resolve(root, name)), { recursive: true });
     await writeFile(resolve(root, name), typeof contents === "string" ? contents : JSON.stringify(contents));
   }
 }
 
-async function fixture(t) {
+async function fixture(t: TestContext): Promise<{ root: string; library: string }> {
   await mkdir(resolve(workspace, ".angulus"), { recursive: true });
   const root = await realpath(await mkdtemp(resolve(workspace, ".angulus/library-test-")));
   t.after(() => rm(root, { recursive: true, force: true }));
@@ -66,7 +66,7 @@ export class Card {
   return { root, library };
 }
 
-async function npm(cwd, args) {
+async function npm(cwd: string, args: string[]): Promise<string> {
   const result = await run(process.env.npm_execpath ? process.execPath : "npm",
     process.env.npm_execpath ? [process.env.npm_execpath, ...args] : args, { cwd });
   assert.equal(result.code, 0, result.stderr + result.stdout);
@@ -75,12 +75,12 @@ async function npm(cwd, args) {
 
 test("packed library imports, typed bindings, scoped styles, runtime events and Vite consumption", { timeout: 30_000 }, async t => {
   const { root, library } = await fixture(t);
-  const events = [];
+  const events: { valid: boolean }[] = [];
   const output = await buildLibrary({ root: library, onEvent: event => events.push(event) });
   assert.equal(output.entry, resolve(library, "dist/index.js"));
   assert.equal(output.types, resolve(library, "dist/types/src/index.d.ts"));
   assert.equal(output.style, resolve(library, "dist/style.css"));
-  assert.equal(events.at(-1).valid, true);
+  assert.equal(events.at(-1)?.valid, true);
   const js = await readFile(output.entry, "utf8");
   assert.match(js, /from "@angulus\/core"/);
   assert.doesNotMatch(js, /Symbol\("Angulus component definition"\)/);
@@ -91,9 +91,9 @@ test("packed library imports, typed bindings, scoped styles, runtime events and 
   assert.match(css, /pulse-f-[a-f0-9]+/);
   assert.match(await readFile(output.types, "utf8"), /"\.\/card\.js"/);
   const [packed] = JSON.parse(await npm(output.directory, ["pack", "--json", "--ignore-scripts", "--pack-destination", root]));
-  assert.ok(packed.files.some(file => file.path.endsWith(".d.ts.angulus.json")));
-  assert.ok(packed.files.some(file => file.path === "style.css"));
-  assert.ok(packed.files.every(file => !file.path.endsWith(".html") && (!file.path.endsWith(".ts") || file.path.endsWith(".d.ts"))));
+  assert.ok(packed.files.some((file: { path: string }) => file.path.endsWith(".d.ts.angulus.json")));
+  assert.ok(packed.files.some((file: { path: string }) => file.path === "style.css"));
+  assert.ok(packed.files.every((file: { path: string }) => !file.path.endsWith(".html") && (!file.path.endsWith(".ts") || file.path.endsWith(".d.ts"))));
   const app = resolve(root, "app");
   await write(app, {
     "package.json": { name: "library-consumer", private: true, type: "module" },
@@ -132,19 +132,23 @@ export class App { readonly count = signal(3); accept(n:number):void { this.coun
   window.document.body.append(host);
   const scope = new runtime.Scope();
   const value = runtime.signal(3);
-  const changed = [];
+  const changed: number[] = [];
   try {
-    runtime.mountChild(scope, host, Widget, { value }, { changed: n => { changed.push(n); value.set(n); } });
+    runtime.mountChild(scope, host as unknown as Node, Widget, { value }, { changed: n => { changed.push(n); value.set(n); } });
     assert.equal(host.textContent, "3");
-    host.querySelector("button").click();
+    const button = host.querySelector("button");
+    assert.ok(button);
+    button.click();
     runtime.flushSync();
     assert.deepEqual(changed, [4]);
     assert.equal(host.textContent, "4");
-    assert.match(window.getComputedStyle(host.querySelector("button")).color, /^(?:#010203|rgb\(1, 2, 3\))$/);
+    assert.match(window.getComputedStyle(button).color, /^(?:#010203|rgb\(1, 2, 3\))$/);
     assert.doesNotMatch(window.getComputedStyle(outsideButton).color, /^(?:#010203|rgb\(1, 2, 3\))$/);
     for (const id of scopes) assert.ok(host.querySelector(`[${id}]`), `DOM must carry CSS scope ${id}`);
-    assert.notEqual(host.querySelector("section").getAttributeNames().find(name => name.startsWith("data-f-")),
-      host.querySelector("button").getAttributeNames().find(name => name.startsWith("data-f-")));
+    const section = host.querySelector("section");
+    assert.ok(section);
+    assert.notEqual(section.getAttributeNames().find(name => name.startsWith("data-f-")),
+      button.getAttributeNames().find(name => name.startsWith("data-f-")));
   } finally {
     scope.dispose();
     await window.happyDOM.close();
@@ -152,7 +156,9 @@ export class App { readonly count = signal(3); accept(n:number):void { this.coun
 
   await build({ root: app, configFile: false, logLevel: "silent", plugins: [angulus()] });
   const assets = await readdir(resolve(app, "dist/assets"));
-  const appCss = await readFile(resolve(app, "dist/assets", assets.find(name => name.endsWith(".css"))), "utf8");
+  const cssAsset = assets.find(name => name.endsWith(".css"));
+  if (!cssAsset) throw new Error("Expected the application CSS asset to be emitted.");
+  const appCss = await readFile(resolve(app, "dist/assets", cssAsset), "utf8");
   for (const id of scopes) assert.ok(appCss.includes(id));
   const server = await createServer({
     root: app, configFile: false, logLevel: "silent", plugins: [angulus({ onEvent() {} })],
@@ -160,23 +166,26 @@ export class App { readonly count = signal(3); accept(n:number):void { this.coun
   });
   try {
     await server.listen();
-    const url = server.resolvedUrls.local[0];
+    const url = server.resolvedUrls?.local?.[0];
+    assert.ok(url);
     const response = await fetch(new URL("src/app.ts", url), { signal: AbortSignal.timeout(10_000) });
     const transformed = await response.text();
     assert.equal(response.status, 200, transformed);
     assert.match(transformed, /defineComponent/);
     const styleResponse = await fetch(new URL("node_modules/@angulus-test/widgets/style.css", url), { signal: AbortSignal.timeout(10_000) });
     assert.equal(styleResponse.status, 200);
-    assert.ok((await styleResponse.text()).includes(scopes[0]));
+    const firstScope = scopes[0];
+    assert.ok(firstScope);
+    assert.ok((await styleResponse.text()).includes(firstScope));
     await server.waitForRequestsIdle();
     const dependency = transformed.match(/from "(\/node_modules\/\.vite\/deps\/@angulus-test_widgets\.js[^"]*)"/);
     assert.ok(dependency, transformed);
-    const optimized = await fetch(new URL(dependency[1], url), { signal: AbortSignal.timeout(10_000) });
+    const optimized = await fetch(new URL(dependency[1]!, url), { signal: AbortSignal.timeout(10_000) });
     const libraryCode = await optimized.text();
     assert.equal(optimized.status, 200, libraryCode);
     const coreImport = transformed.match(/from "(\/node_modules\/\.vite\/deps\/@angulus_core\.js[^"]*)"/);
     assert.ok(coreImport, transformed);
-    const coreResponse = await fetch(new URL(coreImport[1], url), { signal: AbortSignal.timeout(10_000) });
+    const coreResponse = await fetch(new URL(coreImport[1]!, url), { signal: AbortSignal.timeout(10_000) });
     const coreCode = await coreResponse.text();
     assert.equal(coreResponse.status, 200, coreCode);
     const chunks = libraryCode.match(/chunk-[\w-]+\.js/g) ?? [];
@@ -188,18 +197,22 @@ export class App { readonly count = signal(3); accept(n:number):void { this.coun
 test("library CLI emits JSON, custom entry works, and CSS scope includes package identity", async t => {
   const { library } = await fixture(t);
   const first = await buildLibrary({ root: library });
+  if (!first.style) throw new Error("Expected the first library build to emit a stylesheet.");
   const css = await readFile(first.style, "utf8");
   await write(library, {
     "package.json": { ...libraryManifest, name: "@angulus-test/other" },
     "angulus.config.json": { library: { entry: "src/public.ts" } },
   });
-  const result = await run(process.execPath, [resolve(workspace, "packages/tooling/src/cli.mjs"), "build", "--lib", "--json", "--root", library]);
+  const result = await run(process.execPath, [resolve(workspace, "packages/tooling/dist/cli.js"), "build", "--lib", "--json", "--root", library]);
   assert.equal(result.code, 0, result.stderr + result.stdout);
   const events = result.stdout.trim().split("\n").map(line => JSON.parse(line));
   assert.deepEqual(events.map(event => event.type), ["checked", "built"]);
-  assert.equal(events[1].types, resolve(library, "dist/types/src/public.d.ts"));
-  const otherCss = await readFile(events[1].style, "utf8");
-  for (const id of css.match(/data-f-[a-f0-9]+/g)) assert.ok(!otherCss.includes(id));
+  const builtEvent = events[1];
+  const builtStyle = builtEvent?.style;
+  if (typeof builtStyle !== "string") throw new Error("Expected the custom library build to emit a stylesheet.");
+  assert.equal(builtEvent.types, resolve(library, "dist/types/src/public.d.ts"));
+  const otherCss = await readFile(builtStyle, "utf8");
+  for (const id of css.match(/data-f-[a-f0-9]+/g) ?? []) assert.ok(!otherCss.includes(id));
 });
 
 test("library build rejects invalid templates and missing runtime peer before publication", async t => {
@@ -255,7 +268,7 @@ export class Wrapper {}`,
   const window = new Window();
   const host = window.document.createElement("main");
   try {
-    const mounted = runtime.mount(Wrapper, host);
+    const mounted = runtime.mount(Wrapper, host as unknown as Parameters<typeof runtime.mount>[1]);
     assert.equal(host.textContent, "42");
     mounted.destroy();
   } finally { await window.happyDOM.close(); }

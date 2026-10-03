@@ -16,6 +16,7 @@ const result = await build({
     sourcemap: false,
   },
 });
+if (!Array.isArray(result) && !("output" in result)) throw new Error("Vite build did not return bundle output.");
 const outputs = Array.isArray(result) ? result : [result];
 const code = outputs.flatMap(output => output.output).filter(chunk => chunk.type === "chunk").map(chunk => chunk.code).join("\n");
 const minified = Buffer.byteLength(code);

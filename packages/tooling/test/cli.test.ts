@@ -7,13 +7,35 @@ import { spawn, spawnSync, type SpawnSyncReturns } from 'node:child_process';
 import { EventEmitter, once } from 'node:events';
 import net from 'node:net';
 import { fileURLToPath } from 'node:url';
-import { generateComponent, parseArgs, readConfig } from '../src/cli.mjs';
-import { angulus, isNavigationRequest } from '../src/vite.mjs';
+import { generateComponent, parseArgs, readConfig } from '../src/cli.js';
+import { angulus, isNavigationRequest } from '../src/vite.js';
+import type { Plugin, ResolvedConfig, ViteDevServer } from 'vite';
+import type { AngulusProject } from '../src/vite.js';
 
 const workspace = path.resolve(fileURLToPath(new URL('../../..', import.meta.url)));
-const cli = path.join(workspace, 'packages/tooling/src/cli.mjs');
+const cli = path.join(workspace, 'packages/tooling/dist/cli.js');
 const workspaceBin = path.join(workspace, 'node_modules/.bin/angulus');
 const fixtures = path.join(workspace, 'packages/tooling/test');
+
+type PluginHook<T> = T extends { handler: infer Handler } ? Handler : T;
+type TransformContext = ThisParameterType<PluginHook<NonNullable<Plugin['transform']>>>;
+type BuildStartContext = ThisParameterType<PluginHook<NonNullable<Plugin['buildStart']>>>;
+
+function pluginHook<T>(
+  hook: NonNullable<T>,
+  thisArg?: ThisParameterType<PluginHook<T>>,
+): OmitThisParameter<PluginHook<T>> {
+  const handler = typeof hook === 'object' && hook !== null && 'handler' in hook ? hook.handler : hook;
+  return (handler as (...args: never[]) => unknown).bind(thisArg) as OmitThisParameter<PluginHook<T>>;
+}
+
+function resolvePlugin(plugin: Plugin, command: 'serve' | 'build'): void {
+  pluginHook(plugin.configResolved!)({ root: workspace, command } as unknown as ResolvedConfig);
+}
+
+function configurePlugin(plugin: Plugin, server: object): void {
+  pluginHook(plugin.configureServer!)(server as ViteDevServer);
+}
 
 async function fixture(run: (root: string) => unknown) {
   const root = path.join(fixtures, `.cli-${randomUUID()}`);
@@ -32,7 +54,7 @@ test('CLI validates options and application configuration', async () => {
     fs.writeFileSync(path.join(root, 'angulus.config.json'), '{"test":"npm test"}');
     assert.throws(() => readConfig(root), /argv array/);
     fs.writeFileSync(path.join(root, 'angulus.config.json'), '{"library":{"entry":"src/public-api.ts"}}');
-    assert.equal(readConfig(root).library.entry, 'src/public-api.ts');
+    assert.equal(readConfig(root).library?.entry, 'src/public-api.ts');
     fs.writeFileSync(path.join(root, 'angulus.config.json'), '{"library":{"entry":42}}');
     assert.throws(() => readConfig(root), /library/);
   });
@@ -140,7 +162,8 @@ for (const stage of ['startup', 'checking']) {
     let watched = 0;
     let closed = false;
     const events: { type: string }[] = [];
-    const project = {
+    const project: AngulusProject = {
+      pid: undefined,
       dependencies: new Map<string, Set<string>>(),
       async start() {
         if (stage === 'startup') { entered.release(); await work.promise; }
@@ -150,20 +173,23 @@ for (const stage of ['startup', 'checking']) {
         if (stage === 'checking') { entered.release(); await work.promise; }
         return [];
       },
+      async compile() { return null; },
+      async style() { return { code: '', map: null }; },
       invalidate() {},
       async close() { closes++; },
     };
     const watcher = Object.assign(new EventEmitter(), { add() { watched++; } });
-    const plugin = angulus({ project, onEvent: (event: { type: string }) => events.push(event) });
-    plugin.configResolved({ root: workspace, command: 'serve' });
-    plugin.configureServer({
+    const plugin = angulus({ project, onEvent: (event) => { events.push({ type: event.type }); } });
+    resolvePlugin(plugin, 'serve');
+    configurePlugin(plugin, {
       watcher, middlewares: { use() {} },
       ws: { send() { assert.fail('No browser updates are allowed after shutdown'); } },
     });
     try {
       await entered.promise;
-      const closing = plugin.closeBundle();
-      assert.equal(plugin.closeBundle(), closing);
+      const closeBundle = pluginHook(plugin.closeBundle!);
+      const closing = Promise.resolve(closeBundle());
+      assert.equal(Promise.resolve(closeBundle()), closing);
       const finished = closing.then(() => { closed = true; });
       await Promise.resolve();
       assert.equal(closed, false);
@@ -175,10 +201,10 @@ for (const stage of ['startup', 'checking']) {
       assert.equal(watched, 0);
       assert.equal(watcher.listenerCount('all'), 0);
       assert.deepEqual(events.map(event => event.type), ['checking']);
-      await assert.rejects(plugin.buildStart(), /closed/);
+      await assert.rejects(async () => await pluginHook(plugin.buildStart!)({} as never), /closed/);
     } finally {
       work.release();
-      await plugin.closeBundle();
+      await pluginHook(plugin.closeBundle!)();
     }
   });
 }
@@ -192,11 +218,12 @@ test('plugin shares one project, watches dependencies, uses CSS pipeline and rel
   let checks = 0;
   let activeChecks = 0;
   let maxChecks = 0;
-  const project = {
+  const project: AngulusProject = {
+    pid: undefined,
     dependencies: new Map([[file, new Set([css, html])]]),
     async start() { starts++; },
-    async compile() { return { code: 'compiled', map: {}, dependencies: [html, css] }; },
-    async style() { return { code: '.counter{}', map: {} }; },
+    async compile() { return { code: 'compiled', map: null, dependencies: [html, css] }; },
+    async style() { return { code: '.counter{}', map: null }; },
     async check() {
       checks++;
       maxChecks = Math.max(maxChecks, ++activeChecks);
@@ -207,23 +234,26 @@ test('plugin shares one project, watches dependencies, uses CSS pipeline and rel
     invalidate() {},
     async close() { closes++; },
   };
-  const events: any[] = [];
-  const plugin = angulus({ project, onEvent: (event: any) => events.push(event) });
-  plugin.configResolved({ root: workspace, command: 'serve' });
+  const events: Record<string, unknown>[] = [];
+  const plugin = angulus({ project, onEvent: (event) => events.push(event) });
+  resolvePlugin(plugin, 'serve');
   const watched: string[] = [];
   const context = { addWatchFile(file: string) { watched.push(file); } };
-  const transformed = await plugin.transform.call(context, '', file);
+  const transformed = await pluginHook(plugin.transform!, context as TransformContext)('', file);
   assert.ok(transformed);
-  assert.equal(transformed.code, 'compiled');
+  assert.equal(typeof transformed === 'string' ? transformed : transformed.code, 'compiled');
   assert.ok(watched.includes(html));
   assert.ok(!watched.includes(css));
-  const styleId = plugin.resolveId(file + '?angulus-style.css', file);
+  const resolveId = pluginHook(plugin.resolveId!);
+  const resolvedStyleId = await resolveId(file + '?angulus-style.css', file, { isEntry: false });
+  assert.ok(typeof resolvedStyleId === 'string');
+  const styleId = resolvedStyleId;
   assert.ok(styleId);
-  assert.equal(plugin.resolveId(file + '?angulus-style', file), styleId);
+  assert.equal(await resolveId(file + '?angulus-style', file, { isEntry: false }), styleId);
   assert.ok(styleId.endsWith('.css'));
-  const style = await plugin.load.call(context, styleId);
+  const style = await pluginHook(plugin.load!, context as TransformContext)(styleId);
   assert.ok(style);
-  assert.equal(style.code, '.counter{}');
+  assert.equal(typeof style === 'string' ? style : style.code, '.counter{}');
   assert.ok(watched.includes(css) && watched.includes(html));
   assert.equal(starts, 1);
   const cssModule = { id: styleId };
@@ -240,15 +270,17 @@ test('plugin shares one project, watches dependencies, uses CSS pipeline and rel
       invalidateModule(module: any) { invalidated.push(module); },
     },
   };
-  plugin.configureServer(server);
-  const cssUpdates = plugin.handleHotUpdate({ file: css, modules: [], server });
+  configurePlugin(plugin, server);
+  const handleHotUpdate = pluginHook(plugin.handleHotUpdate!);
+  const hotContext = { file: css, modules: [], server };
+  const cssUpdates = await handleHotUpdate(hotContext as unknown as Parameters<typeof handleHotUpdate>[0]);
   assert.deepEqual(cssUpdates, [cssModule]);
   assert.equal(sent.some((event) => event.type === 'full-reload'), false);
-  plugin.handleHotUpdate({ file: html, modules: [], server });
+  await handleHotUpdate({ file: html, modules: [], server } as unknown as Parameters<typeof handleHotUpdate>[0]);
   assert.ok(sent.some((event) => event.type === 'full-reload'));
   assert.ok(invalidated.includes(scriptModule));
   const messagesBeforeGeneratedChange = sent.length;
-  assert.deepEqual(plugin.handleHotUpdate({ file: path.join(workspace, '.angulus/check/generated.ts'), modules: [], server }), []);
+  assert.deepEqual(await handleHotUpdate({ file: path.join(workspace, '.angulus/check/generated.ts'), modules: [], server } as unknown as Parameters<typeof handleHotUpdate>[0]), []);
   assert.equal(sent.length, messagesBeforeGeneratedChange);
   while (checks === 0) await new Promise((resolve) => setTimeout(resolve, 5));
   watcher.emit('all', 'change', path.join(workspace, 'unopened.ts'));
@@ -256,7 +288,7 @@ test('plugin shares one project, watches dependencies, uses CSS pipeline and rel
   assert.equal(maxChecks, 1);
   assert.equal(checks, 2);
   assert.ok(events.some((event) => event.type === 'checked' && event.revision === 2 && event.valid === true && !event.stale));
-  await plugin.closeBundle();
+  await pluginHook(plugin.closeBundle!)();
   assert.equal(closes, 1);
   assert.equal(watcher.listenerCount('all'), 0);
 });
@@ -315,6 +347,7 @@ test('Vite actually processes component styles through its CSS pipeline', async 
     let starts = 0;
     let closes = 0;
     const project = {
+      pid: undefined,
       dependencies: new Map([[file, new Set([css])]]),
       async start() { starts++; },
       async compile(id: string) {
@@ -353,19 +386,24 @@ test('exported Vite plugin fails production builds on full-project diagnostics',
   let checked = false;
   const plugin = angulus({
     project: {
+      pid: undefined,
+      dependencies: new Map(),
       async start() {},
       async check() {
         checked = true;
-        return [{ severity: 'error', file: 'lazy.html', line: 2, column: 4, code: 'TS2339', message: 'Missing member' }];
+        return [{ severity: 'error', file: 'lazy.html', start: 10, end: 11, line: 2, column: 4, code: 'TS2339', message: 'Missing member' }];
       },
+      async compile() { return null; },
+      async style() { return { code: '', map: null }; },
+      invalidate() {},
       async close() {},
     },
   });
-  plugin.configResolved({ root: workspace, command: 'build' });
+  resolvePlugin(plugin, 'build');
   await assert.rejects(
-    plugin.buildStart.call({ error(message: string) { throw new Error(message); } }),
+    async () => pluginHook(plugin.buildStart!, { error(message: string) { throw new Error(message); } } as BuildStartContext)({} as never),
     /lazy\.html:2:4 TS2339: Missing member/,
   );
   assert.equal(checked, true);
-  await plugin.closeBundle();
+  await pluginHook(plugin.closeBundle!)();
 });

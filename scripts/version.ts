@@ -2,11 +2,11 @@ import { readFile, writeFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { releaseVersion } from "./publish.mjs";
+import { releaseVersion } from "./publish.js";
 
 const workspace = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
-function updateLock(root) {
+function updateLock(root: string): void {
   const command = process.env.npm_execpath ? process.execPath : "npm";
   const args = [...(process.env.npm_execpath ? [process.env.npm_execpath] : []), "install", "--package-lock-only", "--ignore-scripts"];
   const result = spawnSync(command, args, { cwd: root, stdio: "inherit" });
@@ -14,7 +14,10 @@ function updateLock(root) {
   if (result.status !== 0) throw new Error(`Lockfile update failed (exit ${result.status}). Package manifests are updated; rerun npm install --package-lock-only --ignore-scripts before committing.`);
 }
 
-export async function updateVersion(version, { root = workspace, refreshLock = updateLock } = {}) {
+export async function updateVersion(
+  version: string,
+  { root = workspace, refreshLock = updateLock }: { root?: string; refreshLock?: (root: string) => void | Promise<void> } = {},
+): Promise<void> {
   releaseVersion(`v${version}`);
   const directories = ["core", "router", "tooling"];
   const manifests = await Promise.all(directories.map(async directory => {

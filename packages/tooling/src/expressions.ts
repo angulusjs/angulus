@@ -1,5 +1,5 @@
 import ts from "typescript";
-import { CompilationError, diagnostic } from "./diagnostics.mjs";
+import { CompilationError, diagnostic } from "./diagnostics.js";
 
 const binary = new Set([
   ts.SyntaxKind.PlusToken, ts.SyntaxKind.MinusToken, ts.SyntaxKind.AsteriskToken, ts.SyntaxKind.SlashToken,
@@ -11,22 +11,40 @@ const binary = new Set([
 ]);
 const unary = new Set([ts.SyntaxKind.PlusToken, ts.SyntaxKind.MinusToken, ts.SyntaxKind.ExclamationToken, ts.SyntaxKind.TildeToken]);
 
-export function expression(raw, { file, source, start, locals = new Map(), runtime = false, event = false }) {
+export interface ExpressionOptions {
+  file: string;
+  source: string;
+  start: number;
+  locals?: Map<string, "plain" | "signal">;
+  runtime?: boolean;
+  event?: boolean;
+}
+
+interface Edit {
+  start: number;
+  end: number;
+  text: string;
+}
+
+export function expression(raw: string, { file, source, start, locals = new Map<string, "plain" | "signal">(), runtime = false, event = false }: ExpressionOptions): { code: string; offsets: number[] } {
   const prefix = "const __expression = (";
   const ast = ts.createSourceFile("expression.ts", `${prefix}${raw}\n);`, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
-  const fail = (message, offset = 0) => { throw new CompilationError([diagnostic(file, source, start + offset, "F_EXPR", message)]); };
-  if (ast.parseDiagnostics.length) fail(ts.flattenDiagnosticMessageText(ast.parseDiagnostics[0].messageText, "\n"), Math.max(0, ast.parseDiagnostics[0].start - prefix.length));
-  if (ast.statements.length !== 1 || !ts.isVariableStatement(ast.statements[0])) fail("Expected one expression.");
-  const declaration = ast.statements[0].declarationList.declarations[0];
-  if (!declaration.initializer || !ts.isParenthesizedExpression(declaration.initializer)) fail("Expected one expression.");
-  const edits = [];
-  const add = (node, text) => edits.push({ start: node.getStart(ast) - prefix.length, end: node.end - prefix.length, text });
-  const qualify = name => {
+  const fail = (message: string, offset = 0): never => { throw new CompilationError([diagnostic(file, source, start + offset, "F_EXPR", message)]); };
+  const parseDiagnostics = (ast as ts.SourceFile & { parseDiagnostics: readonly ts.Diagnostic[] }).parseDiagnostics;
+  if (parseDiagnostics.length) fail(ts.flattenDiagnosticMessageText(parseDiagnostics[0].messageText, "\n"), Math.max(0, parseDiagnostics[0].start! - prefix.length));
+  const statement = ast.statements.find(ts.isVariableStatement);
+  if (!statement || ast.statements.length !== 1) return fail("Expected one expression.");
+  const declaration = statement.declarationList.declarations[0];
+  if (!declaration.initializer || !ts.isParenthesizedExpression(declaration.initializer)) return fail("Expected one expression.");
+  const initializer = declaration.initializer;
+  const edits: Edit[] = [];
+  const add = (node: ts.Node, text: string): void => { edits.push({ start: node.getStart(ast) - prefix.length, end: node.end - prefix.length, text }); };
+  const qualify = (name: string): string => {
     if (name === "undefined" || name === "NaN" || name === "Infinity" || (name === "$event" && event)) return name;
     if (locals.has(name)) return runtime && locals.get(name) === "signal" ? `${name}()` : name;
     return `ctx.${name}`;
   };
-  function visit(node) {
+  function visit(node: ts.Node): void {
     if (ts.isIdentifier(node)) { add(node, qualify(node.text)); return; }
     if (ts.isStringLiteral(node) || ts.isNumericLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node) ||
         [ts.SyntaxKind.TrueKeyword, ts.SyntaxKind.FalseKeyword, ts.SyntaxKind.NullKeyword].includes(node.kind)) return;
@@ -53,12 +71,12 @@ export function expression(raw, { file, source, start, locals = new Map(), runti
     }
     fail(`Unsupported template expression: ${ts.SyntaxKind[node.kind]}. Use a public component method for complex logic.`, Math.max(0, node.getStart(ast) - prefix.length));
   }
-  visit(declaration.initializer.expression);
+  visit(initializer.expression);
   edits.sort((a, b) => a.start - b.start);
   let code = "";
   const offsets = [];
   let previous = 0;
-  const appendOriginal = (from, to) => {
+  const appendOriginal = (from: number, to: number): void => {
     for (let i = from; i < to; i++) { offsets.push(start + i); code += raw[i]; }
   };
   for (const edit of edits) {

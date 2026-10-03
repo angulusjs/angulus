@@ -1,20 +1,21 @@
-import { test } from "node:test";
+import { test, type TestContext } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { expression } from "../src/expressions.mjs";
-import { metadata, exportedComponent } from "../src/frontend.mjs";
-import { scopeStyles } from "../src/styles.mjs";
+import { expression } from "../src/expressions.js";
+import { metadata, exportedComponent } from "../src/frontend.js";
+import { scopeStyles } from "../src/styles.js";
+import type { ExpressionOptions } from "../src/expressions.js";
 
-const parse = (raw, options = {}) => expression(raw, { file: "view.html", source: raw, start: 0, ...options }).code;
+const parse = (raw: string, options: Omit<ExpressionOptions, "file" | "source" | "start"> = {}) => expression(raw, { file: "view.html", source: raw, start: 0, ...options }).code;
 
 test("expressions preserve this, local names, strings, shorthand, optional access", () => {
   assert.equal(parse("increment($event)", { event: true }), "ctx.increment($event)");
   assert.equal(parse("user?.name ?? 'unknown'"), "ctx.user?.name ?? 'unknown'");
   assert.equal(parse("{name, id: product.id}"), "{name: ctx.name, id: ctx.product.id}");
-  assert.equal(parse("item.id + $index", { locals: new Map([["item", "signal"], ["$index", "signal"]]), runtime: true }), "item().id + $index()");
-  assert.equal(parse("item.id", { locals: new Map([["item", "plain"]]), runtime: true }), "item.id");
+  assert.equal(parse("item.id + $index", { locals: new Map<string, "plain" | "signal">([["item", "signal"], ["$index", "signal"]]), runtime: true }), "item().id + $index()");
+  assert.equal(parse("item.id", { locals: new Map<string, "plain" | "signal">([["item", "plain"]]), runtime: true }), "item.id");
 });
 
 test("expressions reject instructions, assignment, assertions and ambient globals", () => {
@@ -43,6 +44,7 @@ import { Child } from "./child";
 export class Counter {}
 `);
     const result = await metadata(file);
+    assert.ok(result);
     assert.equal(result.name, "Counter");
     assert.equal(result.dependencies[0].exported, "Child");
     await writeFile(file, `import { Component } from "@angulus/core"; @Component(getMetadata()) export class Counter {}`);
@@ -66,7 +68,8 @@ div { animation: pulse 1s; background: url("./image.png") }
   assert.doesNotMatch(result.code, /from\[data-/);
   assert.match(result.code, /animation: pulse-f-test 1s/);
   assert.match(result.code, /\/@fs\/\/app\/features\/image.png/);
-  assert.deepEqual(result.map.sourcesContent.length, 1);
+  assert.ok(result.map && typeof result.map !== "string");
+  assert.equal(result.map.sourcesContent?.length, 1);
   assert.throws(() => scopeStyles("@import 'external.css';", "/app/a.css", "f-a"), /do not support @import/);
   assert.throws(() => scopeStyles("a { & b {color:red} }", "/app/a.css", "f-a"), /nesting is not supported/);
   assert.throws(() => scopeStyles("@keyframes ease { to { opacity: 1 } } a { animation: ease 1s; }", "/app/a.css", "f-a"), /Ambiguous keyframe/);
@@ -74,7 +77,7 @@ div { animation: pulse 1s; background: url("./image.png") }
   assert.match(names.code, /animation-name: "slide-f-a"/);
 });
 
-test("compiled metadata resolves barrel aliases and cycles without executing package code", async t => {
+test("compiled metadata resolves barrel aliases and cycles without executing package code", async (t: TestContext) => {
   const directory = await mkdtemp(join(tmpdir(), "angulus-exports-"));
   t.after(() => rm(directory, { recursive: true }));
   const child = join(directory, "child.d.ts");
@@ -83,7 +86,7 @@ test("compiled metadata resolves barrel aliases and cycles without executing pac
   await writeFile(join(directory, "index.d.ts"), 'export * from "./cycle.js"; export { Child as PublicChild } from "./alias.js";');
   await writeFile(join(directory, "cycle.d.ts"), 'export * from "./index.js";');
   await writeFile(join(directory, "alias.d.ts"), 'import { Child } from "./child.js"; export { Child };');
-  const tracked = new Set();
+  const tracked = new Set<string>();
   assert.deepEqual(await exportedComponent(join(directory, "index.d.ts"), "PublicChild", {}, new Set(), tracked),
     { file: child, name: "Child", selector: "lib-child" });
   assert.ok(tracked.has(join(directory, "alias.d.ts")));

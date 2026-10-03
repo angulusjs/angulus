@@ -1,16 +1,72 @@
-import { expression } from "./expressions.mjs";
-import { CompilationError, diagnostic } from "./diagnostics.mjs";
+import { expression } from "./expressions.js";
+import { CompilationError, diagnostic } from "./diagnostics.js";
+import type { Diagnostic } from "./diagnostics.js";
+import type { ComponentMetadata, ExportedComponent } from "./frontend.js";
+
+export interface TemplateAttribute {
+  name: string;
+  value?: string;
+  valueStart?: number;
+  start?: number;
+  end?: number;
+}
+
+export interface TemplateNodeBase {
+  start?: number;
+  end?: number;
+  children?: TemplateNode[];
+  otherwise?: TemplateNode[];
+  cases?: TemplateBranch[];
+  expression?: string;
+  exprStart?: number;
+  attributes?: TemplateAttribute[];
+  item?: string;
+  track?: string;
+  trackStart?: number;
+}
+
+export type TemplateNode =
+  | (TemplateNodeBase & { kind: "element"; tag: string; attributes?: TemplateAttribute[] })
+  | (TemplateNodeBase & { kind: "for"; item: string; track: string; trackStart: number; expression: string; exprStart: number })
+  | (TemplateNodeBase & { kind: "if" | "interpolation" | "switch"; expression: string; exprStart: number })
+  | (TemplateNodeBase & { kind: "text" | "comment" });
+
+export interface TemplateBranch {
+  expression?: string;
+  exprStart?: number;
+  children: TemplateNode[];
+}
+
+export interface TemplateDependency extends ExportedComponent {
+  local: string;
+  checkerName?: string;
+}
+
+type TemplateComponent = Pick<ComponentMetadata, "file" | "name" | "customElements"> & { template: string; templateFile: string };
+
+export interface TemplatePreparation {
+  nodes: TemplateNode[];
+  components: Record<string, string>;
+}
+
+export interface CheckerSource {
+  code: string;
+  file: string;
+  source: string;
+  mappings: { from: number; to: number; start: number; offsets?: number[] }[];
+}
 
 const htmlTags = new Set(("a abbr address area article aside audio b base bdi bdo blockquote body br button canvas caption cite code col colgroup data datalist dd del details dfn dialog div dl dt em embed fieldset figcaption figure footer form h1 h2 h3 h4 h5 h6 head header hgroup hr html i iframe img input ins kbd label legend li link main map mark menu meta meter nav noscript object ol optgroup option output p picture pre progress q rp rt ruby s samp script search section select slot small source span strong style sub summary sup table tbody td template textarea tfoot th thead time title tr track u ul var video wbr").split(" "));
 const forbiddenTags = new Set(["script", "style", "iframe", "object", "embed", "template", "link", "base", "meta"]);
 const unsafeProperties = new Set(["innerhtml", "outerhtml", "srcdoc"]);
 
-export function prepareTemplate(nodes, component, dependencies) {
-  const errors = [];
+export function prepareTemplate(nodes: TemplateNode[], component: TemplateComponent, dependencies: TemplateDependency[]): TemplatePreparation {
+  const errors: Diagnostic[] = [];
   const { templateFile: file, template: source } = component;
   const components = Object.fromEntries(dependencies.map(dep => [dep.selector, dep.local]));
-  const fail = (node, message) => errors.push(diagnostic(file, source, node.start ?? 0, "F_TEMPLATE", message, node.end));
-  function transform(raw, start, locals, runtime, event = false) {
+  const fail = (node: TemplateNode | TemplateAttribute, message: string): void => { errors.push(diagnostic(file, source, node.start ?? 0, "F_TEMPLATE", message, node.end)); };
+  function transform(raw: string, start: number | undefined, locals: Map<string, "plain" | "signal">, runtime: boolean, event = false): string {
+    if (start === undefined) throw new Error("Compiler returned a template expression without a source offset");
     try { return expression(raw, { file, source, start, locals, runtime, event }).code; }
     catch (error) {
       if (!(error instanceof CompilationError)) throw error;
@@ -18,17 +74,17 @@ export function prepareTemplate(nodes, component, dependencies) {
       return "undefined";
     }
   }
-  function walk(items, locals = new Map()) {
+  function walk(items: TemplateNode[], locals = new Map<string, "plain" | "signal">()): TemplateNode[] {
     return items.map(node => {
       const output = { ...node };
-      if (node.expression) output.expression = transform(node.expression, node.exprStart, locals, true);
+      if ("expression" in node && node.expression) output.expression = transform(node.expression, node.exprStart, locals, true);
       if (node.kind === "element") {
         if (forbiddenTags.has(node.tag)) fail(node, `Element <${node.tag}> is not allowed in templates.`);
         if (!htmlTags.has(node.tag) && !components[node.tag] && !component.customElements.includes(node.tag)) {
           fail(node, `Unknown component <${node.tag}>. Add it to @Component imports, or explicitly allow a custom element.`);
         }
         const seen = new Set();
-        output.attributes = (node.attributes ?? []).map(attribute => {
+        (output as Extract<TemplateNode, { kind: "element" }>).attributes = (node.attributes ?? []).map(attribute => {
           const attr = { ...attribute };
           const { name, value, valueStart } = attribute;
           if (seen.has(name)) fail(attribute, `Duplicate attribute '${name}'.`);
@@ -42,9 +98,9 @@ export function prepareTemplate(nodes, component, dependencies) {
             if (type && type.value !== "text") fail(attribute, "Two-way binding is supported only for input type=\"text\".");
             if ((node.attributes ?? []).some(item => item.name === "[type]")) fail(attribute, "A two-way text input cannot have a dynamic type.");
             if ((node.attributes ?? []).some(item => item.name === "[value]" || item.name === "(input)")) fail(attribute, "[(value)] cannot be combined with [value] or (input).");
-            attr.value = transform(value, valueStart, locals, true);
-          } else if (name.startsWith("[")) attr.value = transform(value, valueStart, locals, true);
-          else if (name.startsWith("(")) attr.value = transform(value, valueStart, locals, true, true);
+            attr.value = transform(value ?? "", valueStart ?? 0, locals, true);
+          } else if (name.startsWith("[")) attr.value = transform(value ?? "", valueStart ?? 0, locals, true);
+          else if (name.startsWith("(")) attr.value = transform(value ?? "", valueStart ?? 0, locals, true, true);
           else if (value?.includes("{{")) fail(attribute, "Attribute interpolation is not supported; use a property binding.");
           return attr;
         });
@@ -54,7 +110,7 @@ export function prepareTemplate(nodes, component, dependencies) {
         const loop = new Map(locals);
         loop.set(node.item, "plain");
         loop.set("$index", "plain");
-        output.track = transform(node.track, node.trackStart, loop, true);
+        (output as Extract<TemplateNode, { kind: "for" }>).track = transform(node.track, node.trackStart, loop, true);
         loop.set(node.item, "signal");
         loop.set("$index", "signal");
         output.children = walk(node.children ?? [], loop);
@@ -62,7 +118,7 @@ export function prepareTemplate(nodes, component, dependencies) {
       if (node.otherwise) output.otherwise = walk(node.otherwise, locals);
       if (node.cases) output.cases = node.cases.map(branch => ({
         ...branch,
-        expression: branch.expression ? transform(branch.expression, branch.exprStart, locals, true) : "",
+        expression: branch.expression ? transform(branch.expression, branch.exprStart ?? 0, locals, true) : "",
         children: walk(branch.children, locals),
       }));
       return output;
@@ -73,7 +129,7 @@ export function prepareTemplate(nodes, component, dependencies) {
   return { nodes: runtimeNodes, components };
 }
 
-export function checkerSource(nodes, component, dependencies) {
+export function checkerSource(nodes: TemplateNode[], component: TemplateComponent, dependencies: TemplateDependency[]): CheckerSource {
   const { templateFile: file, template: source } = component;
   const byTag = new Map(dependencies.map(dep => [dep.selector, dep]));
   let code = `import type { ${component.name} } from ${JSON.stringify(component.file)};\n`;
@@ -88,18 +144,19 @@ export function checkerSource(nodes, component, dependencies) {
     code += `import type { ${dep.name} as ${dep.checkerName} } from ${JSON.stringify(dep.file)};\n`;
   }
   code += `export function __check(ctx: ${component.name}) {\nvoid ctx;\n`;
-  const mappings = [];
-  const add = (text, start) => {
+  const mappings: CheckerSource["mappings"] = [];
+  const add = (text: string, start?: number): void => {
     if (start !== undefined) mappings.push({ from: code.length, to: code.length + text.length, start });
     code += text;
   };
-  const expr = (raw, start, locals, event = false) => {
+  const expr = (raw: string | undefined, start: number | undefined, locals: Map<string, "plain" | "signal">, event = false): void => {
+    if (raw === undefined || start === undefined) throw new Error("Compiler returned an incomplete template expression");
     const result = expression(raw, { file, source, start, locals, event });
     mappings.push({ from: code.length, to: code.length + result.code.length, start, offsets: result.offsets });
     code += result.code;
   };
   let counter = 0;
-  function walk(items, locals = new Map()) {
+  function walk(items: TemplateNode[], locals = new Map<string, "plain" | "signal">()): void {
     for (const node of items) {
       if (node.kind === "interpolation") {
         add("void ("); expr(node.expression, node.exprStart, locals); add(");\n");
@@ -129,7 +186,7 @@ export function checkerSource(nodes, component, dependencies) {
           add(`const ${id} = null! as ${child.checkerName};\n`);
           const bound = (node.attributes ?? []).filter(a => !a.name.startsWith("(") && !a.name.startsWith("[(")).map(a => a.name.startsWith("[") ? a.name.slice(1, -1) : a.name);
           // Assignability of this mapped type checks every required input, including inherited ones.
-          add(`const __required: Record<Exclude<__Required<${child.checkerName}>, ${bound.length ? bound.map(JSON.stringify).join(" | ") : "never"}>, never> = {};\nvoid __required;\n`, node.start);
+          add(`const __required: Record<Exclude<__Required<${child.checkerName}>, ${bound.length ? bound.map(name => JSON.stringify(name)).join(" | ") : "never"}>, never> = {};\nvoid __required;\n`, node.start);
         } else add(`const ${id} = document.createElement(${JSON.stringify(node.tag)});\n`);
         add(`void ${id};\n`);
         for (const attr of node.attributes ?? []) {

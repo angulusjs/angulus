@@ -11,15 +11,15 @@
     "build": "angulus build --root examples/demo",
     "preview": "angulus preview --root examples/demo",
     "pretest": "npm run compiler && npm run packages:build",
-    "test": "go test ./... && tsx --test packages/core/test/*.test.ts packages/router/test/*.test.ts packages/tooling/test/*.test.*",
+    "test": "go test ./... && tsx --test packages/core/test/*.test.ts packages/router/test/*.test.ts packages/tooling/test/*.test.ts",
     "test:browser": "playwright test",
     "typecheck": "tsgo --noEmit -p tsconfig.json",
-    "packages:build": "node scripts/build-packages.mjs",
-    "packages:pack": "node scripts/pack.mjs",
-    "packages:smoke": "node scripts/smoke-packages.mjs",
-    "release:version": "node scripts/version.mjs",
-    "release:publish": "node scripts/publish.mjs",
-    "size": "node scripts/size.mjs"
+    "packages:build": "tsx scripts/build-packages.ts",
+    "packages:pack": "tsx scripts/pack.ts",
+    "packages:smoke": "tsx scripts/smoke-packages.ts",
+    "release:version": "tsx scripts/version.ts",
+    "release:publish": "tsx scripts/publish.ts",
+    "size": "tsx scripts/size.ts"
   },
   "devDependencies": {
     "@playwright/test": "1.63.0",

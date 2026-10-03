@@ -3,13 +3,14 @@ import assert from "node:assert/strict";
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
-import { checkInstalledDependencies, hostPlatform } from "../../../scripts/package-isolation.mjs";
+import { checkInstalledDependencies, hostPlatform } from "../../../scripts/package-isolation.js";
+import type { TestContext } from "node:test";
 
 const glibc = { platform: "linux", arch: "x64", libc: "glibc" };
 const musl = { platform: "linux", arch: "x64", libc: "musl" };
 
 test("host libc detection distinguishes glibc, musl and unknown without guessing", () => {
-  const report = (header, sharedObjects = []) => ({ getReport: () => ({ header, sharedObjects }) });
+  const report = (header: { glibcVersionRuntime?: string }, sharedObjects: string[] = []) => ({ getReport: () => ({ header, sharedObjects }) });
   assert.deepEqual(hostPlatform("linux", "x64", report({ glibcVersionRuntime: "2.39" })), glibc);
   assert.deepEqual(hostPlatform("linux", "x64", report({}, ["/lib/ld-musl-x86_64.so.1"])), musl);
   assert.equal(hostPlatform("linux", "x64", report({})).libc, undefined);
@@ -17,7 +18,7 @@ test("host libc detection distinguishes glibc, musl and unknown without guessing
     { platform: "darwin", arch: "arm64", libc: undefined });
 });
 
-async function fixture(t) {
+async function fixture(t: TestContext) {
   const root = await mkdtemp(resolve(tmpdir(), "angulus-isolation-"));
   t.after(() => rm(root, { recursive: true }));
   const project = resolve(root, "project");
@@ -25,13 +26,13 @@ async function fixture(t) {
   const manifestFile = resolve(project, "package.json");
   await mkdir(nodeModules, { recursive: true });
   await writeFile(manifestFile, JSON.stringify({ name: "app", dependencies: { lightningcss: "1.0.0" } }));
-  async function pkg(name, fields = {}, external = false) {
+  async function pkg(name: string, fields: Record<string, unknown> = {}, external = false) {
     const directory = resolve(external ? resolve(root, "node_modules") : nodeModules, name);
     await mkdir(directory, { recursive: true });
     await writeFile(resolve(directory, "package.json"), JSON.stringify({ name, version: "1.0.0", ...fields }));
     return directory;
   }
-  const check = host => checkInstalledDependencies(manifestFile, nodeModules, host);
+  const check = (host: { platform: string; arch: string; libc?: string }) => checkInstalledDependencies(manifestFile, nodeModules, host);
   return { pkg, check, nodeModules };
 }
 

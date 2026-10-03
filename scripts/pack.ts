@@ -1,13 +1,13 @@
-import { spawnSync } from "node:child_process";
+import { spawnSync, type SpawnSyncOptions } from "node:child_process";
 import { chmod, copyFile, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { dirname, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { buildPackages } from "./build-packages.mjs";
-import { releaseVersion } from "./publish.mjs";
+import { buildPackages } from "./build-packages.js";
+import { releaseVersion } from "./publish.js";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const release = resolve(root, ".angulus/release");
-export const targets = [
+export const targets: [string, string, string, string][] = [
   ["darwin", "x64", "darwin", "amd64"],
   ["darwin", "arm64", "darwin", "arm64"],
   ["linux", "x64", "linux", "amd64"],
@@ -17,14 +17,21 @@ export const targets = [
   ["win32", "arm64", "windows", "arm64"],
 ];
 
-function run(command, args, options = {}) {
+interface PackageManifest {
+  name: string;
+  version: string;
+  dependencies?: Record<string, string>;
+  [key: string]: unknown;
+}
+
+function run(command: string, args: string[], options: SpawnSyncOptions = {}): string {
   const result = spawnSync(command, args, { cwd: root, encoding: "utf8", stdio: "inherit", ...options });
   if (result.error) throw result.error;
   if (result.status !== 0) throw new Error(`${command} ${args.join(" ")} failed (${result.status}).\n${result.stderr ?? ""}`);
-  return result.stdout;
+  return typeof result.stdout === "string" ? result.stdout : "";
 }
 
-async function copySources(source, destination, accept) {
+async function copySources(source: string, destination: string, accept: (file: string) => boolean): Promise<void> {
   await mkdir(destination, { recursive: true });
   for (const entry of await readdir(source, { withFileTypes: true })) {
     if (entry.isDirectory()) await copySources(resolve(source, entry.name), resolve(destination, entry.name), accept);
@@ -32,14 +39,16 @@ async function copySources(source, destination, accept) {
   }
 }
 
-export async function packPackages(args = process.argv.slice(2)) {
+export async function packPackages(args: string[] = process.argv.slice(2)): Promise<void> {
   if (args.length && (args.length !== 2 || args[0] !== "--tag")) throw new Error("Usage: npm run packages:pack -- [--tag v0.1.0]");
-  const manifests = await Promise.all(["core", "router", "tooling"].map(async name =>
+  const manifests: PackageManifest[] = await Promise.all(["core", "router", "tooling"].map(async name =>
     JSON.parse(await readFile(resolve(root, "packages", name, "package.json"), "utf8"))));
-  const version = manifests[0].version;
+  const firstManifest = manifests[0];
+  if (!firstManifest) throw new Error("Core package manifest is missing.");
+  const version = firstManifest.version;
   releaseVersion(`v${version}`);
   if (manifests.some(manifest => manifest.version !== version)) throw new Error("All Angulus package versions must match.");
-  if (manifests[1].dependencies["@angulus/core"] !== version) throw new Error("Router must depend on the exact core release version.");
+  if (manifests[1]?.dependencies?.["@angulus/core"] !== version) throw new Error("Router must depend on the exact core release version.");
   if (args.length && releaseVersion(args[1]).version !== version) throw new Error(`Release tag ${args[1]} does not match package version ${version}.`);
   // Reject a mismatched tag before compilation or replacing existing artifacts.
   await buildPackages();
@@ -48,9 +57,9 @@ export async function packPackages(args = process.argv.slice(2)) {
     await mkdir(resolve(release, directory), { recursive: true });
   }
   await rm(resolve(release, "manifest.json"), { force: true });
-  const packages = [];
-  const compilerDependencies = {};
-  async function pack(manifest, kind, source, extra = {}) {
+  const packages: { name: string; version: string; tarball: string; kind: string; integrity: string; platform?: string; arch?: string }[] = [];
+  const compilerDependencies: Record<string, string> = {};
+  async function pack(manifest: PackageManifest, kind: string, source: (directory: string) => Promise<void>, extra: Record<string, string> = {}): Promise<void> {
     const directory = resolve(release, "stage", manifest.name.replace("@angulus/", ""));
     await mkdir(directory, { recursive: true });
     await writeFile(resolve(directory, "package.json"), `${JSON.stringify(manifest, null, 2)}\n`);
@@ -74,7 +83,7 @@ export async function packPackages(args = process.argv.slice(2)) {
       license: "MIT", repository: { type: "git", url: "https://github.com/angulusjs/angulus.git", directory: "cmd/angulus-compiler" },
       publishConfig: { access: "public" }, os: [platform], cpu: [arch],
       files: ["bin", "LICENSE", "README.md"],
-    }, "compiler", async directory => {
+    }, "compiler", async (directory: string) => {
       await mkdir(resolve(directory, "bin"));
       const binary = resolve(directory, "bin", platform === "win32" ? "angulus-compiler.exe" : "angulus-compiler");
       run("go", ["build", "-trimpath", "-buildvcs=false", "-ldflags=-s -w -buildid=", "-o", binary, "./cmd/angulus-compiler"], {
@@ -87,13 +96,13 @@ export async function packPackages(args = process.argv.slice(2)) {
   for (const manifest of manifests) {
     const name = manifest.name.replace("@angulus/", "");
     const packaged = name === "tooling" ? { ...manifest, optionalDependencies: compilerDependencies } : manifest;
-    await pack(packaged, name, async directory => {
+    await pack(packaged, name, async (directory: string) => {
       await copyFile(resolve(root, "packages", name, "README.md"), resolve(directory, "README.md"));
-      const source = name === "tooling" ? "src" : "dist";
+      const source = "dist";
       await copySources(resolve(root, "packages", name, source), resolve(directory, source),
-        file => name === "tooling" ? file.endsWith(".mjs") : file.endsWith(".js") || file.endsWith(".d.ts"));
+        (file: string) => file.endsWith(".js") || file.endsWith(".d.ts"));
       if (name === "tooling") {
-        await copySources(resolve(root, "packages/tooling/types"), resolve(directory, "types"), file => file.endsWith(".d.mts"));
+        await copySources(resolve(root, "packages/tooling/types"), resolve(directory, "types"), (file: string) => file.endsWith(".d.mts"));
       }
     });
   }

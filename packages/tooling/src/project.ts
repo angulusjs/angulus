@@ -5,16 +5,20 @@ import { createRequire } from "node:module";
 import ts from "typescript";
 import MagicString from "magic-string";
 import { encode } from "@jridgewell/sourcemap-codec";
-import { CompilerClient, run } from "./client.mjs";
-import { metadata, resolveImport, exportedComponent } from "./frontend.mjs";
-import { prepareTemplate, checkerSource } from "./templates.mjs";
-import { scopeStyles } from "./styles.mjs";
-import { CompilationError, diagnostic } from "./diagnostics.mjs";
+import { CompilerClient, run } from "./client.js";
+import { metadata, resolveImport, exportedComponent } from "./frontend.js";
+import { prepareTemplate, checkerSource } from "./templates.js";
+import { scopeStyles } from "./styles.js";
+import { CompilationError, diagnostic } from "./diagnostics.js";
+import type { Diagnostic } from "./diagnostics.js";
+import type { ComponentMetadata } from "./frontend.js";
+import type { CheckerSource, TemplateDependency, TemplateNode, TemplatePreparation } from "./templates.js";
+import type { SourceMapInput } from "./sourcemap.js";
 
 const require = createRequire(import.meta.url);
 const checkerBin = resolve(dirname(require.resolve("@typescript/native-preview/package.json")), "bin/tsgo");
-const hash = text => createHash("sha256").update(text).digest("hex").slice(0, 12);
-const lineOffset = (source, line, column) => {
+const hash = (text: string): string => createHash("sha256").update(text).digest("hex").slice(0, 12);
+const lineOffset = (source: string, line: number, column: number): number => {
   let offset = 0;
   for (let index = 1; index < line; index++) {
     const next = source.indexOf("\n", offset);
@@ -23,31 +27,32 @@ const lineOffset = (source, line, column) => {
   }
   return Math.min(offset + column - 1, source.length);
 };
-const location = (text, offset) => {
+const location = (text: string, offset: number): [number, number] => {
   const before = text.slice(0, offset);
   return [before.split("\n").length - 1, offset - before.lastIndexOf("\n") - 1];
 };
 
 export class Project {
+  readonly root: string;
   #client = new CompilerClient();
-  #metadata = new Map();
-  #components = new Map();
-  #started;
-  #options = {};
-  #scopeNamespace;
-  dependencies = new Map();
+  #metadata = new Map<string, Promise<ComponentMetadata | null>>();
+  #components = new Map<string, Promise<ComponentData | null>>();
+  #started: Promise<void> | undefined;
+  #options: ts.CompilerOptions = {};
+  #scopeNamespace: string;
+  dependencies = new Map<string, Set<string>>();
 
-  constructor(root, { scopeNamespace = "" } = {}) {
+  constructor(root: string, { scopeNamespace = "" }: { scopeNamespace?: string } = {}) {
     this.root = resolve(root);
     this.#scopeNamespace = scopeNamespace;
   }
   get pid() { return this.#client.pid; }
-  async start() {
+  async start(): Promise<void> {
     this.#started ??= this.#client.start();
     await this.#started;
   }
-  async close() { await this.#client.close(); }
-  invalidate(file) {
+  async close(): Promise<void> { await this.#client.close(); }
+  invalidate(file: string): void {
     file = resolve(file);
     if (file.endsWith(".ts") || basename(file) === "tsconfig.json") {
       this.#metadata.clear();
@@ -56,16 +61,16 @@ export class Project {
       for (const [owner, files] of this.dependencies) if (files.has(file)) this.#components.delete(owner);
     }
   }
-  async #meta(file) {
+  async #meta(file: string): Promise<ComponentMetadata | null> {
     if (!this.#metadata.has(file)) this.#metadata.set(file, metadata(file));
-    return this.#metadata.get(file);
+    return this.#metadata.get(file) ?? null;
   }
-  async #component(file) {
+  async #component(file: string): Promise<ComponentData | null> {
     await this.start();
     if (!this.#components.has(file)) this.#components.set(file, this.#loadComponent(file));
-    return this.#components.get(file);
+    return this.#components.get(file) ?? null;
   }
-  async #loadComponent(file) {
+  async #loadComponent(file: string): Promise<ComponentData | null> {
     const meta = await this.#meta(file);
     if (!meta) return null;
     const templateFile = resolve(dirname(file), meta.templateUrl);
@@ -73,10 +78,10 @@ export class Project {
     const files = new Set([file, templateFile, ...(styleFile ? [styleFile] : [])]);
     this.dependencies.set(file, files);
     const template = await readFile(templateFile, "utf8");
-    const parsed = await this.#client.request("parse", { source: template, file: templateFile });
+    const parsed = await this.#client.request<ParseResponse>("parse", { source: template, file: templateFile });
     if (parsed.diagnostics?.length) throw new CompilationError(parsed.diagnostics.map(d => diagnostic(templateFile, template, d.start, d.code, d.message, d.end)));
-    const dependencies = [];
-    const selectors = new Set();
+    const dependencies: TemplateDependency[] = [];
+    const selectors = new Set<string>();
     for (const dependency of meta.dependencies) {
       const depFile = resolveImport(file, dependency.from, this.#options);
       files.add(depFile);
@@ -94,15 +99,15 @@ export class Project {
     const prepared = prepareTemplate(parsed.nodes ?? [], component, dependencies);
     return { component, dependencies, prepared, nodes: parsed.nodes ?? [] };
   }
-  async compile(file) {
+  async compile(file: string): Promise<CompiledComponent | null> {
     file = resolve(file);
     const data = await this.#component(file);
     if (!data) return null;
     const { component, prepared, dependencies } = data;
-    const usedNames = new Set();
-    const collectNames = node => { if (ts.isIdentifier(node)) usedNames.add(node.text); ts.forEachChild(node, collectNames); };
+    const usedNames = new Set<string>();
+    const collectNames = (node: ts.Node): void => { if (ts.isIdentifier(node)) usedNames.add(node.text); ts.forEachChild(node, collectNames); };
     collectNames(component.ast);
-    const uniqueName = prefix => {
+    const uniqueName = (prefix: string): string => {
       let name = prefix;
       while (usedNames.has(name)) name += "_";
       usedNames.add(name);
@@ -110,7 +115,7 @@ export class Project {
     };
     const runtimeName = uniqueName("__angulusRuntime");
     const childAliases = dependencies.map(dependency => ({ ...dependency, generatedName: uniqueName("__angulusChild") }));
-    const generated = await this.#client.request("generate", {
+    const generated = await this.#client.request<GenerateResponse>("generate", {
       ...prepared,
       components: Object.fromEntries(childAliases.map(dependency => [dependency.selector, dependency.generatedName])),
       file: component.templateFile, scopeId: component.scopeId,
@@ -124,7 +129,7 @@ export class Project {
     const code = magic.toString();
     const map = magic.generateDecodedMap({ source: file, file, includeContent: true, hires: true });
     map.sources.push(component.templateFile);
-    map.sourcesContent.push(component.template);
+    (map.sourcesContent ??= []).push(component.template);
     for (const mapping of generated.mappings ?? []) {
       const [line, column] = location(code, generatedStart + mapping.generated);
       const [sourceLine, sourceColumn] = location(component.template, mapping.source);
@@ -132,19 +137,19 @@ export class Project {
       map.mappings[line].push([column, 1, sourceLine, sourceColumn]);
       map.mappings[line].sort((a, b) => a[0] - b[0]);
     }
-    return { code, map: { ...map, mappings: encode(map.mappings) }, dependencies: [...this.dependencies.get(file)] };
+    return { code, map: { version: 3, ...map, mappings: encode(map.mappings) }, dependencies: [...(this.dependencies.get(file) ?? [])] };
   }
-  async style(file) {
+  async style(file: string): Promise<ReturnType<typeof scopeStyles>> {
     const data = await this.#component(resolve(file));
     if (!data?.component.styleFile) throw new Error(`No component stylesheet for ${file}`);
     const { styleFile, scopeId } = data.component;
     return scopeStyles(await readFile(styleFile, "utf8"), styleFile, scopeId);
   }
-  async check(additionalFiles = []) {
+  async check(additionalFiles: string[] = []): Promise<Diagnostic[]> {
     await this.start();
     const configPath = resolve(this.root, "tsconfig.json");
     const loaded = ts.readConfigFile(configPath, ts.sys.readFile);
-    const errors = [];
+    const errors: Diagnostic[] = [];
     const hasConfig = ts.sys.fileExists(configPath);
     if (loaded.error && hasConfig) return [diagnostic(configPath, await readFile(configPath, "utf8"), loaded.error.start ?? 0, `TS${loaded.error.code}`, ts.flattenDiagnosticMessageText(loaded.error.messageText, "\n"))];
     const config = hasConfig ? loaded.config : { compilerOptions: { target: "ES2022", module: "ESNext", moduleResolution: "Bundler", strict: true, experimentalDecorators: true, lib: ["ES2022", "DOM", "DOM.Iterable"], skipLibCheck: true }, include: ["**/*.ts"], exclude: ["node_modules", "dist", ".angulus"] };
@@ -155,7 +160,7 @@ export class Project {
       !relative(this.root, file).split(/[\\/]/).some(part => ["node_modules", ".angulus", "dist"].includes(part)));
     const checkDir = resolve(this.root, ".angulus/check");
     await mkdir(checkDir, { recursive: true });
-    const generated = new Map();
+    const generated = new Map<string, CheckerSource>();
     for (const file of sources) {
       try {
         const data = await this.#component(file);
@@ -169,7 +174,7 @@ export class Project {
         if (data.component.styleFile) await this.style(file);
       } catch (error) {
         if (error instanceof CompilationError) errors.push(...error.diagnostics);
-        else errors.push(diagnostic(file, "", 0, "F_IO", error.message));
+        else errors.push(diagnostic(file, "", 0, "F_IO", error instanceof Error ? error.message : String(error)));
       }
     }
     for (const entry of await readdir(checkDir)) {
@@ -192,7 +197,7 @@ export class Project {
     await writeIfChanged(generatedConfig, JSON.stringify(checkConfig, null, 2));
     const result = await run(process.execPath, [checkerBin, "--project", generatedConfig, "--pretty", "false", "--locale", "en"], { cwd: this.root });
     const output = `${result.stdout}\n${result.stderr}`.trim();
-    let current;
+    let current: Diagnostic | undefined;
     for (const line of output.split(/\r?\n/)) {
       if (!line) continue;
       const match = /^(.*?)\((\d+),(\d+)\): error TS(\d+): (.*)$/.exec(line);
@@ -221,8 +226,46 @@ export class Project {
   }
 }
 
-async function writeIfChanged(file, source) {
+interface CompilerDiagnostic {
+  start: number;
+  end: number;
+  code: string;
+  message: string;
+}
+
+interface ParseResponse {
+  diagnostics?: CompilerDiagnostic[];
+  nodes?: TemplateNode[];
+}
+
+interface GenerateResponse {
+  diagnostics?: CompilerDiagnostic[];
+  code: string;
+  mappings?: { generated: number; source: number }[];
+}
+
+interface ComponentData {
+  component: ComponentMetadata & {
+    template: string;
+    templateFile: string;
+    styleFile: string | null;
+    scopeId: string;
+  };
+  dependencies: TemplateDependency[];
+  prepared: TemplatePreparation;
+  nodes: TemplateNode[];
+}
+
+interface CompiledComponent {
+  code: string;
+  map: SourceMapInput;
+  dependencies: string[];
+}
+
+async function writeIfChanged(file: string, source: string): Promise<void> {
   try { if (await readFile(file, "utf8") === source) return; }
-  catch (error) { if (error.code !== "ENOENT") throw error; }
+  catch (error) {
+    if (!(error instanceof Error) || !("code" in error) || error.code !== "ENOENT") throw error;
+  }
   await writeFile(file, source);
 }

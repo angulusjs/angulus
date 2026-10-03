@@ -11,7 +11,29 @@ export const packageNames = [
   "@angulus/core", "@angulus/router", "@angulus/tooling",
 ];
 
-export function releaseVersion(tag) {
+export interface ReleaseVersion {
+  version: string;
+  prerelease: boolean;
+  distTag: "next" | "latest";
+}
+
+export interface PackedArtifact {
+  name: string;
+  version: string;
+  tarball: string;
+  integrity: string;
+  [key: string]: unknown;
+}
+
+export interface ReleaseArtifacts extends ReleaseVersion {
+  packages: PackedArtifact[];
+}
+
+export interface PublishItem extends PackedArtifact {
+  action: "publish" | "skip";
+}
+
+export function releaseVersion(tag?: string): ReleaseVersion {
   const match = /^v((0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?)$/.exec(tag ?? "");
   if (!match || match[5]?.split(".").some(part => /^\d+$/.test(part) && part.length > 1 && part.startsWith("0"))) {
     throw new Error("Release tag must be vMAJOR.MINOR.PATCH or vMAJOR.MINOR.PATCH-prerelease (no leading zeroes or build metadata).");
@@ -19,18 +41,23 @@ export function releaseVersion(tag) {
   return { version: match[1], prerelease: Boolean(match[5]), distTag: match[5] ? "next" : "latest" };
 }
 
-export async function validateArtifacts(manifestFile, tag, { read = readFile, canonical = realpath } = {}) {
+export async function validateArtifacts(
+  manifestFile: string,
+  tag: string | undefined,
+  { read = readFile, canonical = realpath }: { read?: typeof readFile; canonical?: typeof realpath } = {},
+): Promise<ReleaseArtifacts> {
   const release = releaseVersion(tag);
-  const manifest = JSON.parse(await read(manifestFile, "utf8"));
+  const manifest: { version: string; packages: PackedArtifact[] } = JSON.parse(await read(manifestFile, "utf8"));
   if (manifest.version !== release.version || !Array.isArray(manifest.packages)) throw new Error("Release tag and packed manifest version must match.");
   const names = manifest.packages.map(item => item.name);
   if (names.length !== packageNames.length || new Set(names).size !== names.length || packageNames.some(name => !names.includes(name))) {
     throw new Error("Release must contain exactly seven platform compiler packages plus core, router and tooling.");
   }
   const root = await canonical(dirname(manifestFile));
-  const result = [];
+  const result: PackedArtifact[] = [];
   for (const name of packageNames) {
     const item = manifest.packages.find(candidate => candidate.name === name);
+    if (!item) throw new Error(`Missing artifact for ${name}.`);
     if (item.version !== release.version) throw new Error(`Version mismatch for ${name}.`);
     if (typeof item.tarball !== "string" || isAbsolute(item.tarball) || !item.tarball.endsWith(".tgz")) throw new Error(`Invalid tarball for ${name}.`);
     const tarball = await canonical(resolve(root, item.tarball));
@@ -44,8 +71,17 @@ export async function validateArtifacts(manifestFile, tag, { read = readFile, ca
   return { ...release, packages: result };
 }
 
-export async function publicationPlan(artifacts, { bootstrap = false, fetchMetadata = fetch } = {}) {
-  const plan = [];
+interface RegistryMetadata {
+  name?: string;
+  versions?: Record<string, { dist?: { integrity?: string } }>;
+  "dist-tags"?: { latest?: string };
+}
+
+export async function publicationPlan(
+  artifacts: ReleaseArtifacts,
+  { bootstrap = false, fetchMetadata = fetch }: { bootstrap?: boolean; fetchMetadata?: typeof fetch } = {},
+): Promise<PublishItem[]> {
+  const plan: PublishItem[] = [];
   for (const item of artifacts.packages) {
     const response = await fetchMetadata(`${registry}/${encodeURIComponent(item.name)}`, {
       headers: { accept: "application/vnd.npm.install-v1+json" },
@@ -57,7 +93,7 @@ export async function publicationPlan(artifacts, { bootstrap = false, fetchMetad
       continue;
     }
     if (!response.ok) throw new Error(`npm registry preflight failed for ${item.name}: HTTP ${response.status}. No publish attempted.`);
-    const metadata = await response.json();
+    const metadata: RegistryMetadata = await response.json();
     if (metadata.name !== item.name || !metadata.versions || typeof metadata.versions !== "object") throw new Error(`Invalid npm metadata for ${item.name}.`);
     const published = metadata.versions[item.version];
     if (published) {
@@ -82,8 +118,8 @@ export async function publicationPlan(artifacts, { bootstrap = false, fetchMetad
   return plan;
 }
 
-function npm(args, options = {}) {
-  return new Promise((resolveExit, reject) => {
+function npm(args: string[], options: import("node:child_process").SpawnOptions = {}): Promise<void> {
+  return new Promise<void>((resolveExit, reject) => {
     if (process.platform === "win32" && !process.env.npm_execpath) {
       reject(new Error("Run publishing through npm run release:publish on Windows."));
       return;
@@ -96,7 +132,11 @@ function npm(args, options = {}) {
   });
 }
 
-export async function publishPackages(artifacts, plan, { bootstrap = false, execute = npm } = {}) {
+export async function publishPackages(
+  artifacts: ReleaseArtifacts,
+  plan: PublishItem[],
+  { bootstrap = false, execute = npm }: { bootstrap?: boolean; execute?: (args: string[]) => Promise<void> } = {},
+): Promise<void> {
   for (const item of plan) {
     if (item.action === "skip") {
       console.log(`Already published with identical integrity: ${item.name}@${item.version}`);
@@ -110,7 +150,7 @@ export async function publishPackages(artifacts, plan, { bootstrap = false, exec
   }
 }
 
-export async function main(args = process.argv.slice(2)) {
+export async function main(args: string[] = process.argv.slice(2)): Promise<void> {
   let tag;
   let dryRun = false;
   let bootstrap = false;

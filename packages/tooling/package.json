@@ -12,25 +12,25 @@
     "access": "public"
   },
   "files": [
-    "src/**/*.mjs",
+    "dist",
     "types",
     "README.md",
     "LICENSE"
   ],
   "type": "module",
   "bin": {
-    "angulus": "./src/cli.mjs"
+    "angulus": "./dist/cli.js"
   },
   "exports": {
     "./library": {
       "types": "./types/library.d.mts",
-      "import": "./src/library.mjs",
-      "default": "./src/library.mjs"
+      "import": "./dist/library.js",
+      "default": "./dist/library.js"
     },
     "./vite": {
       "types": "./types/vite.d.mts",
-      "import": "./src/vite.mjs",
-      "default": "./src/vite.mjs"
+      "import": "./dist/vite.js",
+      "default": "./dist/vite.js"
     }
   },
   "engines": {

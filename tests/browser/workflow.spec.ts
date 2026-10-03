@@ -7,7 +7,7 @@ import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const workspace = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
-const cli = resolve(workspace, "packages/tooling/src/cli.mjs");
+const cli = resolve(workspace, "packages/tooling/dist/cli.js");
 
 async function freePort(): Promise<number> {
   const server = createServer();

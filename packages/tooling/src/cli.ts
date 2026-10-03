@@ -3,9 +3,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { spawn } from 'node:child_process';
-import { Project } from './project.mjs';
-import { angulus } from './vite.mjs';
-import { stderrLogger } from './diagnostics.mjs';
+import type { InlineConfig, PreviewServer, ViteDevServer } from 'vite';
+import { Project } from './project.js';
+import { angulus } from './vite.js';
+import { stderrLogger } from './diagnostics.js';
+import type { Diagnostic } from './diagnostics.js';
 
 const help = `Angulus commands:
   angulus serve [--root path] [--host host] [--port port] [--json]
@@ -22,18 +24,29 @@ JSON output is NDJSON: {version:1,type,revision,...}. "listening" means HTTP
 ready, not type-safe; "checked" contains diagnostics and may be stale.
 `;
 
-/**
- * @typedef {{ root: string, positional: string[], json: boolean, force: boolean, lib?: boolean,
- *   help?: boolean, host?: string, port?: number }} CLIOptions
- */
+interface CLIOptions {
+  root: string;
+  positional: string[];
+  json: boolean;
+  force: boolean;
+  lib?: boolean;
+  help?: boolean;
+  host?: string;
+  port?: number;
+}
 
-/**
- * @param {string[]} args
- * @returns {CLIOptions}
- */
-export function parseArgs(args) {
-  /** @type {CLIOptions} */
-  const options = { root: process.cwd(), positional: [], json: false, force: false };
+interface AppConfig {
+  port?: number;
+  host?: string;
+  proxy?: Record<string, string>;
+  test?: string[];
+  library?: { entry?: string };
+}
+
+type CLIEvent = Record<string, unknown>;
+
+export function parseArgs(args: string[]): CLIOptions {
+  const options: CLIOptions = { root: process.cwd(), positional: [], json: false, force: false };
   for (let index = 0; index < args.length; index++) {
     const arg = args[index];
     if (arg === '--json') options.json = true;
@@ -53,15 +66,15 @@ export function parseArgs(args) {
   return options;
 }
 
-function parsePort(value) {
+function parsePort(value: string | number): number {
   const port = Number(value);
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('Port must be an integer between 1 and 65535');
   return port;
 }
 
-export function readConfig(root) {
+export function readConfig(root: string): AppConfig {
   const file = path.join(root, 'angulus.config.json');
-  const config = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : {};
+  const config: AppConfig = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : {};
   if (!config || typeof config !== 'object' || Array.isArray(config)) throw new Error('angulus.config.json must contain an object');
   if (config.port !== undefined) config.port = parsePort(config.port);
   if (config.host !== undefined && (typeof config.host !== 'string' || !config.host)) throw new Error('host must be a nonempty string');
@@ -77,7 +90,7 @@ export function readConfig(root) {
   return config;
 }
 
-export function generateComponent(root, name, force = false) {
+export function generateComponent(root: string, name: string, force = false): string[] {
   if (!/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(name ?? '')) {
     throw new Error('Component name must be kebab-case without paths (for example: product-card)');
   }
@@ -137,13 +150,13 @@ test('${name} increments independently', () => {
   return destinations;
 }
 
-function formatDiagnostics(diagnostics) {
+function formatDiagnostics(diagnostics: Diagnostic[]): string {
   return diagnostics.map((diagnostic) => `${diagnostic.file}:${diagnostic.line}:${diagnostic.column} ${diagnostic.severity} ${diagnostic.code}: ${diagnostic.message}`).join('\n');
 }
 
-function installShutdown(close) {
-  let stopping;
-  const shutdown = (signal) => {
+function installShutdown(close: () => Promise<unknown> | void): () => void {
+  let stopping: Promise<unknown> | undefined;
+  const shutdown = (signal: NodeJS.Signals) => {
     if (stopping) return;
     stopping = Promise.resolve().then(close).finally(() => {
       process.exitCode = signal === 'SIGINT' ? 130 : 143;
@@ -162,16 +175,18 @@ function installShutdown(close) {
   };
 }
 
-export async function main(args = process.argv.slice(2)) {
+export async function main(args: string[] = process.argv.slice(2)): Promise<number> {
   const options = parseArgs(args);
   const [command, ...rest] = options.positional;
-  const emit = (event) => {
+  const emit = (event: CLIEvent) => {
+    const type = event.type;
     if (options.json) process.stdout.write(`${JSON.stringify({ version: 1, ...event })}\n`);
-    else if (event.type === 'checked') {
-      const text = formatDiagnostics(event.diagnostics);
+    else if (type === 'checked') {
+      const diagnostics = Array.isArray(event.diagnostics) ? event.diagnostics as Diagnostic[] : [];
+      const text = formatDiagnostics(diagnostics);
       if (text) process.stderr.write(`${text}\n`);
       else process.stdout.write(`Check passed (revision ${event.revision}).\n`);
-    } else if (event.type === 'listening') {
+    } else if (type === 'listening') {
       process.stdout.write(`Angulus ${command}: ${event.url}\n`);
     }
   };
@@ -189,7 +204,7 @@ export async function main(args = process.argv.slice(2)) {
   if (!fs.existsSync(options.root) || !fs.statSync(options.root).isDirectory()) throw new Error(`Project root does not exist: ${options.root}`);
   const config = readConfig(options.root);
   if (options.lib) {
-    const { buildLibrary } = await import('./library.mjs');
+    const { buildLibrary } = await import('./library.js');
     const result = await buildLibrary({ root: options.root, entry: config.library?.entry, onEvent: emit });
     if (options.json) emit({ type: 'built', revision: 1, ...result });
     else process.stdout.write(`Library built: ${result.directory}\nPublish with: npm publish ${JSON.stringify(result.directory)}\n`);
@@ -203,12 +218,12 @@ export async function main(args = process.argv.slice(2)) {
       env: { ...process.env, PATH: `${path.join(options.root, 'node_modules', '.bin')}${path.delimiter}${process.env.PATH ?? ''}` },
     });
     if (options.json) {
-      child.stdout.pipe(process.stderr);
-      child.stderr.pipe(process.stderr);
+      child.stdout?.pipe(process.stderr);
+      child.stderr?.pipe(process.stderr);
     }
     const unhook = installShutdown(() => { child.kill('SIGTERM'); });
     try {
-      const code = await new Promise((resolve, reject) => {
+      const code = await new Promise<number>((resolve, reject) => {
         child.once('error', reject);
         child.once('exit', (exitCode, signal) => resolve(exitCode ?? (signal === 'SIGINT' ? 130 : 143)));
       });
@@ -217,11 +232,10 @@ export async function main(args = process.argv.slice(2)) {
     } finally { unhook(); }
   }
   const project = new Project(options.root);
-  let resource;
+  let resource: ViteDevServer | PreviewServer | undefined;
   const close = async () => {
     try {
-      if (resource?.close) await resource.close();
-      else if (resource?.httpServer) await new Promise((resolve, reject) => resource.httpServer.close((error) => error ? reject(error) : resolve()));
+      if (resource) await resource.close();
     } finally { await project.close(); }
   };
   const unhook = installShutdown(close);
@@ -241,8 +255,8 @@ export async function main(args = process.argv.slice(2)) {
       root: options.root, configFile: false, clearScreen: false,
       customLogger: options.json ? stderrLogger() : undefined,
       plugins: [angulus({ project, onEvent: emit, checkBuild: false })],
-      appType: 'spa',
-    };
+      appType: 'spa' as const,
+    } satisfies InlineConfig;
     if (command === 'build') {
       await vite.build(common);
       emit({ type: 'built', revision: 1, directory: path.join(options.root, 'dist') });
@@ -275,8 +289,9 @@ export async function main(args = process.argv.slice(2)) {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(fs.realpathSync(process.argv[1])).href) {
   main().then((code) => { if (!process.exitCode) process.exitCode = code; }).catch((error) => {
-    if (process.argv.includes('--json')) process.stdout.write(JSON.stringify({ version: 1, type: 'error', revision: 0, message: error.message }) + '\n');
-    else process.stderr.write(`Angulus: ${error.message}\n`);
+    const message = error instanceof Error ? error.message : String(error);
+    if (process.argv.includes('--json')) process.stdout.write(JSON.stringify({ version: 1, type: 'error', revision: 0, message }) + '\n');
+    else process.stderr.write(`Angulus: ${message}\n`);
     process.exitCode = 1;
   });
 }

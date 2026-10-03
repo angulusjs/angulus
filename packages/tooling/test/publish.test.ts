@@ -4,8 +4,10 @@ import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
-import { packageNames, publicationPlan, publishPackages, releaseVersion, validateArtifacts } from "../../../scripts/publish.mjs";
-import { updateVersion } from "../../../scripts/version.mjs";
+import { packageNames, publicationPlan, publishPackages, releaseVersion, validateArtifacts } from "../../../scripts/publish.js";
+import type { PackedArtifact, ReleaseArtifacts } from "../../../scripts/publish.js";
+import { updateVersion } from "../../../scripts/version.js";
+import type { TestContext } from "node:test";
 
 test("release versions enforce exact semantic tags and separate prerelease dist-tags", () => {
   assert.deepEqual(releaseVersion("v0.1.0"), { version: "0.1.0", prerelease: false, distTag: "latest" });
@@ -15,11 +17,11 @@ test("release versions enforce exact semantic tags and separate prerelease dist-
   }
 });
 
-async function artifacts(t) {
+async function artifacts(t: TestContext) {
   const directory = await mkdtemp(resolve(tmpdir(), "angulus-release-test-"));
   t.after(() => rm(directory, { recursive: true }));
   await mkdir(resolve(directory, "tarballs"));
-  const manifest = { version: "0.1.0", packages: [] };
+  const manifest: { version: string; packages: PackedArtifact[] } = { version: "0.1.0", packages: [] };
   for (const [index, name] of packageNames.entries()) {
     const bytes = Buffer.from(`fixture:${name}`);
     const tarball = `tarballs/${index}.tgz`;
@@ -63,10 +65,11 @@ test("release rejects missing, duplicate and escaping tarballs", async t => {
 
 const sample = {
   version: "0.1.0",
+  prerelease: false,
   distTag: "latest",
   packages: packageNames.map(name => ({ name, version: "0.1.0", integrity: `sha512-${name}`, tarball: `/release/${name.slice(9)}.tgz` })),
-};
-const metadata = (item, published) => new Response(JSON.stringify({
+} satisfies ReleaseArtifacts;
+const metadata = (item: PackedArtifact, published?: string) => new Response(JSON.stringify({
   name: item.name,
   versions: published ? { [item.version]: { dist: { integrity: published } } } : {},
 }));
@@ -94,7 +97,7 @@ test("partial releases skip identical published versions and stage remaining art
       return metadata(item, index <= 2 ? item.integrity : undefined);
     },
   });
-  const calls = [];
+  const calls: string[][] = [];
   await publishPackages(sample, plan, { execute: async args => { calls.push(args); } });
   assert.deepEqual(calls, sample.packages.slice(2).map(item => [
     "stage", "publish", item.tarball, "--access", "public", "--tag", "latest",
@@ -103,8 +106,8 @@ test("partial releases skip identical published versions and stage remaining art
 });
 
 test("manual bootstrap stages prereleases with next and without CI provenance", async () => {
-  const calls = [];
-  await publishPackages({ ...sample, distTag: "next" }, [{ ...sample.packages[0], action: "publish" }], {
+  const calls: string[][] = [];
+  await publishPackages({ ...sample, prerelease: true, distTag: "next" }, [{ ...sample.packages[0], action: "publish" }], {
     bootstrap: true,
     execute: async args => { calls.push(args); },
   });
@@ -126,7 +129,7 @@ test("a late stable release cannot roll back the registry's latest version", asy
 
 test("publishing stops at the first npm failure", async () => {
   let attempted = 0;
-  await assert.rejects(publishPackages(sample, sample.packages.map(item => ({ ...item, action: "publish" })), {
+  await assert.rejects(publishPackages(sample, sample.packages.map(item => ({ ...item, action: "publish" as const })), {
     execute: async () => { attempted++; throw new Error("npm authentication failed"); },
   }), /authentication failed/);
   assert.equal(attempted, 1);

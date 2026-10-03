@@ -1,11 +1,11 @@
-import { test } from "node:test";
+import { test, type TestContext } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, writeFile, mkdir, rm } from "node:fs/promises";
 import { resolve, dirname } from "node:path";
-import { Project } from "../src/project.mjs";
-import { workspace } from "../src/client.mjs";
+import { Project } from "../src/project.js";
+import { workspace } from "../src/client.js";
 
-async function fixture(t, files) {
+async function fixture(t: TestContext, files: Record<string, string>): Promise<{ project: Project; root: string }> {
   await mkdir(resolve(workspace, ".angulus"), { recursive: true });
   const root = await mkdtemp(resolve(workspace, ".angulus/check-fixture-"));
   for (const [name, source] of Object.entries({
@@ -83,13 +83,16 @@ test("unopened components and CSS fail full checks, compiler is reused and dispo
     "lazy/lazy.html": "<p>{{ unopenedError }}</p>",
   });
   const pid = project.pid;
+  assert.ok(pid !== undefined);
   assert.ok((await project.check()).some(error => error.file === resolve(root, "lazy/lazy.html")));
   const compiled = await project.compile(resolve(root, "counter.ts"));
+  assert.ok(compiled);
+  assert.ok(compiled.map && typeof compiled.map !== "string");
   assert.equal(project.pid, pid);
   assert.match(compiled.code, /defineComponent/);
   assert.doesNotMatch(compiled.code, /@Component/);
-  assert.ok(compiled.map.sources.some(file => file.endsWith("counter.html")));
-  assert.ok(compiled.map.sources.some(file => file.endsWith("counter.ts")));
+  assert.ok(compiled.map.sources.some((file: string) => file.endsWith("counter.html")));
+  assert.ok(compiled.map.sources.some((file: string) => file.endsWith("counter.ts")));
   await project.close();
   assert.throws(() => process.kill(pid, 0), /ESRCH/);
 });

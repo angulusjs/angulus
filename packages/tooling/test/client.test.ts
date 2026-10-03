@@ -1,9 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { CompilerClient } from "../src/client.mjs";
+import { CompilerClient } from "../src/client.js";
 
-function assertStopped(pid) {
-  assert.equal(typeof pid, "number");
+function assertStopped(pid: number | undefined) {
+  assert.ok(pid !== undefined);
   assert.throws(() => process.kill(pid, 0), { code: "ESRCH" });
 }
 

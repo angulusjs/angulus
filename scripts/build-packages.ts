@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
-import { rm } from "node:fs/promises";
+import { chmod, rm } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -10,13 +10,14 @@ const require = createRequire(import.meta.url);
 export async function buildPackages() {
   const tsgo = resolve(dirname(require.resolve("@typescript/native-preview/package.json")), "bin/tsgo");
   // Router declarations resolve the built core package, so order is significant.
-  for (const name of ["core", "router"]) {
+  for (const name of ["core", "router", "tooling"]) {
     await rm(resolve(root, "packages", name, "dist"), { recursive: true, force: true });
     const result = spawnSync(process.execPath, [tsgo, "-p", `packages/${name}/tsconfig.build.json`], {
       cwd: root, stdio: "inherit",
     });
     if (result.error) throw result.error;
     if (result.status !== 0) throw new Error(`Building @angulus/${name} failed (${result.status}).`);
+    if (name === "tooling") await chmod(resolve(root, "packages/tooling/dist/cli.js"), 0o755);
   }
 }
 

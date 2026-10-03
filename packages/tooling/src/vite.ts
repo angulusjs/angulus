@@ -1,11 +1,15 @@
 import path from 'node:path';
-import { Project } from './project.mjs';
+import type { IncomingMessage, ServerResponse } from 'node:http';
+import type { Logger, Plugin, ResolvedConfig, ViteDevServer, PreviewServer } from 'vite';
+import { Project } from './project.js';
+import type { Diagnostic } from './diagnostics.js';
+import type { SourceMapInput } from './sourcemap.js';
 
 const styleQuery = '?angulus-style.css';
 const legacyStyleQuery = '?angulus-style';
 const styleSuffix = '.angulus-style.css';
 
-export function isNavigationRequest(req) {
+export function isNavigationRequest(req: Pick<IncomingMessage, 'url' | 'method' | 'headers'>): boolean {
   let pathname;
   try { pathname = decodeURIComponent(new URL(req.url ?? '/', 'http://localhost').pathname); }
   catch { return false; }
@@ -16,7 +20,7 @@ export function isNavigationRequest(req) {
 }
 
 // Run before Vite's HTML fallback: APIs and missing assets must remain 404s.
-export function navigationFallbackGuard(req, _res, next) {
+export function navigationFallbackGuard(req: IncomingMessage, _res: ServerResponse, next: (error?: unknown) => void): void {
   if (!isNavigationRequest(req)) {
     req.headers.accept = 'application/octet-stream';
     next();
@@ -25,40 +29,58 @@ export function navigationFallbackGuard(req, _res, next) {
   }
 }
 
-export function angulus(options = {}) {
-  let project;
-  let server;
-  let startup;
+interface AngulusOptions {
+  onEvent?: (event: Record<string, unknown> & { type: string }) => void;
+  project?: AngulusProject;
+  checkBuild?: boolean;
+}
+
+export interface AngulusProject {
+  readonly dependencies: Map<string, Set<string>>;
+  readonly pid: number | undefined;
+  start(): Promise<void>;
+  check(): Promise<Diagnostic[]>;
+  compile(file: string): Promise<{ code: string; map: SourceMapInput; dependencies: string[] } | null>;
+  style(file: string): Promise<{ code: string; map: SourceMapInput }>;
+  invalidate(file: string): void;
+  close(): Promise<void>;
+}
+
+export function angulus(options: AngulusOptions = {}): Plugin {
+  let project: AngulusProject | undefined;
+  let server: ViteDevServer | undefined;
+  let startup: Promise<void> | undefined;
   let closed = false;
   let revision = 0;
   let checkedRevision = 0;
-  let checking;
-  let timer;
-  let root;
-  let command;
-  let logger;
-  let watcherListener;
-  let shutdown;
+  let checking: Promise<void> | undefined;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let root = process.cwd();
+  let command: ResolvedConfig['command'] | undefined;
+  let logger: Logger | undefined;
+  let watcherListener: ((event: string, file: string) => void) | undefined;
+  let shutdown: Promise<void> | undefined;
 
-  const emit = (event) => {
+  const emit = (event: Record<string, unknown> & { type: string; diagnostics?: Diagnostic[]; stale?: boolean }) => {
     if (options.onEvent) options.onEvent({ version: 1, ...event });
     else if (event.type === 'checked' && !event.stale) {
-      for (const diagnostic of event.diagnostics) {
+      for (const diagnostic of event.diagnostics ?? []) {
         logger?.[diagnostic.severity === 'error' ? 'error' : 'warn'](
           `${diagnostic.file}:${diagnostic.line}:${diagnostic.column} ${diagnostic.code}: ${diagnostic.message}`,
         );
       }
     }
   };
-  const start = () => {
+  const start = (): Promise<void> => {
     if (closed) return Promise.reject(new Error('Angulus Vite plugin has been closed'));
+    if (!project) return Promise.reject(new Error('Angulus Vite plugin has not been configured'));
     return startup ??= project.start();
   };
-  const ignored = file => /(^|[/\\])(node_modules|dist|\.angulus|\.git)([/\\]|$)/.test(path.relative(root, file));
-  const tracked = file => [...project.dependencies.values()].some(dependencies => dependencies.has(file));
-  const reportFailure = (error) => [{
+  const ignored = (file: string): boolean => /(^|[/\\])(node_modules|dist|\.angulus|\.git)([/\\]|$)/.test(path.relative(root, file));
+  const tracked = (file: string): boolean => [...(project?.dependencies.values() ?? [])].some(dependencies => dependencies.has(file));
+  const reportFailure = (error: unknown): Diagnostic[] => [{
     file: root, start: 0, end: 0, line: 1, column: 1,
-    code: 'ANGULUS_TOOLING', severity: 'error', message: error.message ?? String(error),
+    code: 'ANGULUS_TOOLING', severity: 'error', message: error instanceof Error ? error.message : String(error),
   }];
   const runChecks = () => {
     if (checking || closed) return;
@@ -70,8 +92,8 @@ export function angulus(options = {}) {
         try {
           await start();
           if (closed) break;
-          diagnostics = await project.check();
-          if (!closed) server?.watcher.add([...new Set([...project.dependencies.values()].flatMap(dependencies => [...dependencies]))]);
+          diagnostics = await project!.check();
+          if (!closed) server?.watcher.add([...new Set([...(project?.dependencies.values() ?? [])].flatMap(dependencies => [...dependencies]))]);
         } catch (error) {
           diagnostics = reportFailure(error);
         }
@@ -117,7 +139,7 @@ export function angulus(options = {}) {
     return shutdown;
   };
 
-  return {
+  const plugin: Plugin = {
     name: 'angulus',
     enforce: 'pre',
     config() {
@@ -135,7 +157,7 @@ export function angulus(options = {}) {
     async buildStart() {
       await start();
       if (command === 'build' && options.checkBuild !== false) {
-        const diagnostics = await project.check();
+        const diagnostics = await project!.check();
         emit({
           type: 'checked', revision: 1, diagnostics,
           valid: !diagnostics.some((diagnostic) => diagnostic.severity === 'error'), stale: false,
@@ -151,7 +173,7 @@ export function angulus(options = {}) {
         const relative = path.relative(root, file);
         if (ignored(file) || (relative.startsWith('..') && !tracked(file))) return;
         if (!/\.(?:[cm]?tsx?|html|css|json)$/.test(file)) return;
-        project.invalidate(file);
+        project!.invalidate(file);
         scheduleCheck();
       };
       server.watcher.on('all', watcherListener);
@@ -182,8 +204,8 @@ export function angulus(options = {}) {
       if (!id.endsWith(styleSuffix)) return;
       await start();
       const file = id.slice(0, -styleSuffix.length);
-      const result = await project.style(file);
-      for (const dependency of project.dependencies.get(file) ?? []) {
+      const result = await project!.style(file);
+      for (const dependency of project!.dependencies.get(file) ?? []) {
         if (dependency.endsWith('.css')) this.addWatchFile(dependency);
       }
       return result;
@@ -191,7 +213,7 @@ export function angulus(options = {}) {
     async transform(_code, id) {
       if (id.includes('?') || !/\.tsx?$/.test(id) || id.includes('/node_modules/')) return;
       await start();
-      const result = await project.compile(id);
+      const result = await project!.compile(id);
       if (!result) return;
       // CSS dependencies belong to the self-accepting style module, not its TS importer.
       for (const dependency of result.dependencies) {
@@ -202,10 +224,10 @@ export function angulus(options = {}) {
     handleHotUpdate(context) {
       if (ignored(context.file)) return [];
       const owners = [];
-      for (const [owner, dependencies] of project.dependencies) {
+      for (const [owner, dependencies] of project!.dependencies) {
         if (owner === context.file || dependencies.has(context.file)) owners.push(owner);
       }
-      project.invalidate(context.file);
+      project!.invalidate(context.file);
       const cssOnly = context.file.endsWith('.css');
       const modules = new Set(context.modules);
       for (const owner of owners) {
@@ -225,6 +247,7 @@ export function angulus(options = {}) {
     },
     closeBundle: close,
   };
+  return plugin;
 }
 
 export default angulus;

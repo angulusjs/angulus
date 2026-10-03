@@ -2,23 +2,26 @@ import { copyFile, mkdir, readFile, readdir, realpath, rm, writeFile } from "nod
 import { createRequire } from "node:module";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import ts from "typescript";
-import { Project } from "./project.mjs";
-import { angulus } from "./vite.mjs";
-import { metadata } from "./frontend.mjs";
-import { run } from "./client.mjs";
-import { CompilationError, stderrLogger } from "./diagnostics.mjs";
+import { Project } from "./project.js";
+import { angulus } from "./vite.js";
+import { metadata } from "./frontend.js";
+import { run } from "./client.js";
+import { CompilationError, stderrLogger } from "./diagnostics.js";
+import type { Diagnostic } from "./diagnostics.js";
 
 const require = createRequire(import.meta.url);
 const checkerBin = resolve(dirname(require.resolve("@typescript/native-preview/package.json")), "bin/tsgo");
-const contained = (root, file) => {
+const hasCode = (error: unknown, code: string): error is NodeJS.ErrnoException =>
+  error instanceof Error && "code" in error && error.code === code;
+const contained = (root: string, file: string): boolean => {
   const part = relative(root, file);
   return part !== ".." && !part.startsWith(`..${sep}`) && !isAbsolute(part);
 };
-const declarationPath = file => /\.d\.[cm]?ts$/.test(file)
+const declarationPath = (file: string): string => /\.d\.[cm]?ts$/.test(file)
   ? file : file.replace(/\.(?:([cm])[jt]s|[jt]sx?)$/, (_, prefix) => `.d.${prefix ?? ""}ts`);
-const format = diagnostic => ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n");
+const format = (diagnostic: ts.Diagnostic): string => ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n");
 
-async function copyDirectory(source, target) {
+async function copyDirectory(source: string, target: string): Promise<void> {
   await mkdir(target, { recursive: true });
   for (const item of await readdir(source, { withFileTypes: true })) {
     if (item.isDirectory()) await copyDirectory(resolve(source, item.name), resolve(target, item.name));
@@ -26,7 +29,15 @@ async function copyDirectory(source, target) {
   }
 }
 
-export async function buildLibrary({ root = process.cwd(), entry = "src/index.ts", onEvent } = {}) {
+export async function buildLibrary({
+  root = process.cwd(),
+  entry = "src/index.ts",
+  onEvent,
+}: {
+  root?: string;
+  entry?: string;
+  onEvent?: (event: { version: 1; type: "checked"; revision: 1; diagnostics: Diagnostic[]; valid: boolean; stale: false }) => void;
+} = {}): Promise<{ directory: string; entry: string; types: string; style?: string }> {
   root = await realpath(root);
   if (typeof entry !== "string" || !entry.endsWith(".ts") || entry.endsWith(".d.ts")) {
     throw new Error("Library entry must be a TypeScript .ts module.");
@@ -58,7 +69,7 @@ export async function buildLibrary({ root = process.cwd(), entry = "src/index.ts
   for (const target of [resolve(root, ".angulus"), directory, staging]) {
     let canonical;
     try { canonical = await realpath(target); }
-    catch (error) { if (error.code !== "ENOENT") throw error; }
+    catch (error) { if (!hasCode(error, "ENOENT")) throw error; }
     if (canonical && canonical !== target) throw new Error(`Refusing to build through an output symlink: ${target}`);
   }
   const project = new Project(root, { scopeNamespace: `${manifest.name}@${manifest.version}:` });
@@ -117,7 +128,7 @@ export async function buildLibrary({ root = process.cwd(), entry = "src/index.ts
     const types = `./types/${declarationPath(relative(root, entry)).replaceAll("\\", "/")}`;
     const style = ts.sys.fileExists(resolve(directory, "style.css")) ? resolve(directory, "style.css") : undefined;
     if (style) await writeFile(resolve(directory, "style.d.ts"), "export {};\n");
-    const published = {};
+    const published: Record<string, unknown> = {};
     for (const key of ["name", "version", "description", "license", "private", "repository", "author", "contributors",
       "homepage", "bugs", "keywords", "funding", "dependencies", "optionalDependencies",
       "peerDependencies", "peerDependenciesMeta", "engines", "publishConfig"]) {
@@ -133,7 +144,7 @@ export async function buildLibrary({ root = process.cwd(), entry = "src/index.ts
     await writeFile(resolve(directory, "package.json"), JSON.stringify(published, null, 2) + "\n");
     for (const name of ["README.md", "LICENSE"]) {
       try { await copyFile(resolve(root, name), resolve(directory, name)); }
-      catch (error) { if (error.code !== "ENOENT") throw error; }
+      catch (error) { if (!hasCode(error, "ENOENT")) throw error; }
     }
     return { directory, entry: resolve(directory, "index.js"), types: resolve(directory, types), style };
   } finally {
@@ -142,11 +153,11 @@ export async function buildLibrary({ root = process.cwd(), entry = "src/index.ts
   }
 }
 
-async function portableDeclarations(file, original, root, options) {
+async function portableDeclarations(file: string, original: string, root: string, options: ts.CompilerOptions): Promise<void> {
   let text = await readFile(file, "utf8");
   const ast = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true);
-  const replacements = [];
-  function visit(node) {
+  const replacements: { start: number; end: number; text: string }[] = [];
+  function visit(node: ts.Node): void {
     if (ts.isStringLiteral(node) && (
       (ts.isImportDeclaration(node.parent) || ts.isExportDeclaration(node.parent)) && node.parent.moduleSpecifier === node
       || ts.isLiteralTypeNode(node.parent) && ts.isImportTypeNode(node.parent.parent)

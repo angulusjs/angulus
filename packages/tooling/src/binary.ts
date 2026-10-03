@@ -22,7 +22,7 @@ export async function compilerLocation({ platform = process.platform, arch = pro
       await access(resolve(sourceRoot, "go.mod"));
       return { binary: resolve(sourceRoot, ".angulus/bin", executable), sourceRoot };
     } catch (error) {
-      if (error.code !== "ENOENT") throw error;
+      if (!(error instanceof Error) || !("code" in error) || error.code !== "ENOENT") throw error;
     }
   }
   const manifest = JSON.parse(await readFile(resolve(toolingRoot, "package.json"), "utf8"));
@@ -30,7 +30,7 @@ export async function compilerLocation({ platform = process.platform, arch = pro
   let compilerManifest;
   try { compilerManifest = require.resolve(`${name}/package.json`); }
   catch (error) {
-    if (error.code !== "MODULE_NOT_FOUND") throw error;
+    if (!(error instanceof Error) || !("code" in error) || error.code !== "MODULE_NOT_FOUND") throw error;
     throw new Error(`Missing ${name}@${manifest.version}. Install Angulus with optional dependencies enabled (npm install --include=optional), or install ${name}@${manifest.version} explicitly. Go is not required.`, { cause: error });
   }
   const installed = JSON.parse(await readFile(compilerManifest, "utf8"));
