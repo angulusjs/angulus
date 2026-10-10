@@ -506,6 +506,12 @@ func applicationBuildOptions(root, contextOut string, entries []api.EntryPoint, 
 		LogLevel:            api.LogLevelSilent,
 		Plugins:             []api.Plugin{componentStylePlugin(root)},
 	}
+	// Dependency-local development aliases must not select a second runtime.
+	if config := filepath.Join(root, "tsconfig.json"); fileExists(config) {
+		built.Tsconfig = config
+	} else {
+		built.TsconfigRaw = "{}"
+	}
 	if options.Mode == BuildDevelopment {
 		built.Sourcemap = api.SourceMapLinked
 		built.SourcesContent = api.SourcesContentInclude

@@ -194,6 +194,35 @@ func TestBuilderDependenciesSnapshotTracksResolvedInputsAndSurvivesFailures(t *t
 	}
 }
 
+func TestApplicationBuildIgnoresDependencyLocalTypeScriptAliases(t *testing.T) {
+	root := appFixture(t)
+	writeFixture(t, root, "node_modules/dependency/package.json", `{"main":"dist/index.js","types":"dist/index.d.ts"}`)
+	writeFixture(t, root, "node_modules/dependency/dist/index.d.ts", `export { defineComponent } from "@angulus/core";`)
+	writeFixture(t, root, "node_modules/dependency/tsconfig.json",
+		`{"compilerOptions":{"paths":{"@angulus/core":["./alternate-core.js"]}}}`)
+	writeFixture(t, root, "node_modules/dependency/alternate-core.js",
+		`export function defineComponent() { console.log("duplicate-runtime-marker"); }`)
+	writeFixture(t, root, "node_modules/dependency/dist/index.js",
+		`import { defineComponent } from "@angulus/core"; export { defineComponent };`)
+	writeFixture(t, root, "src/main.ts",
+		`import { Counter } from "./counter.component.generated"; import { defineComponent } from "dependency"; console.log(Counter, defineComponent);`)
+	for _, configured := range []bool{false, true} {
+		if configured {
+			writeFixture(t, root, "tsconfig.json",
+				`{"compilerOptions":{"target":"ES2022","module":"ESNext","moduleResolution":"Bundler","strict":true,"allowJs":true,"skipLibCheck":true},"include":["src/**/*.ts"]}`)
+		}
+		for _, mode := range []BuildMode{BuildDevelopment, BuildProduction} {
+			builder := NewBuilder(root, "dist", BuildOptions{Mode: mode})
+			result := builder.Build(context.Background())
+			builder.Close()
+			requireBuilt(t, result)
+			if strings.Contains(readOutput(t, filepath.Join(root, "dist"), "src/main.js"), "duplicate-runtime-marker") {
+				t.Fatalf("dependency-local aliases selected a duplicate runtime (configured=%v, mode=%v)", configured, mode)
+			}
+		}
+	}
+}
+
 func appFixture(t *testing.T) string {
 	t.Helper()
 	tsgo := nativeTSGo(".")
