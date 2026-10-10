@@ -165,7 +165,7 @@ func TestBuilderDependenciesSnapshotTracksResolvedInputsAndSurvivesFailures(t *t
 			if !filepath.IsAbs(dependency) {
 				t.Errorf("dependency must be absolute: %s", dependency)
 			}
-			found = found || dependency == expected
+			found = found || samePath(dependency, expected)
 		}
 		if !found {
 			t.Errorf("resolved input missing from dependency snapshot: %s (%v)", expected, dependencies)
@@ -186,10 +186,10 @@ func TestBuilderDependenciesSnapshotTracksResolvedInputsAndSurvivesFailures(t *t
 	for _, expected := range append(strings.Split(original, "\n"), typeDependency) {
 		found := false
 		for _, dependency := range afterFailure {
-			found = found || dependency == expected
+			found = found || samePath(dependency, expected)
 		}
 		if !found {
-			t.Errorf("failed check dependency snapshot omitted %s", expected)
+			t.Errorf("failed check dependency snapshot omitted %s; recorded dependencies: %v", expected, afterFailure)
 		}
 	}
 }

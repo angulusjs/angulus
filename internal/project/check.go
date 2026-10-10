@@ -397,7 +397,12 @@ func samePath(left, right string) bool {
 	if rightErr == nil {
 		right = rightAbs
 	}
-	return pathKey(left) == pathKey(right)
+	if pathKey(left) == pathKey(right) {
+		return true
+	}
+	leftInfo, leftErr := os.Stat(left)
+	rightInfo, rightErr := os.Stat(right)
+	return leftErr == nil && rightErr == nil && os.SameFile(leftInfo, rightInfo)
 }
 
 func projectTypeScriptFiles(root string) ([]string, error) {
