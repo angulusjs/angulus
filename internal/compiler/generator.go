@@ -242,7 +242,7 @@ func (g *generator) element(n Node, parent, scope string, depth int) {
 		return
 	}
 	switch strings.ToLower(n.Tag) {
-	case "script", "iframe", "object", "embed", "style", "base", "link", "meta":
+	case "script", "iframe", "object", "embed", "style", "base", "link", "meta", "template":
 		g.error(n, "F2006", "Unsupported active-content element: "+n.Tag)
 		return
 	}
@@ -255,7 +255,7 @@ func (g *generator) element(n Node, parent, scope string, depth int) {
 			g.error(n, "F2007", "Malformed binding: "+attr.Name)
 			continue
 		}
-		if kind != "event" && dangerousProperty(name) {
+		if dangerousProperty(name) {
 			g.error(n, "F2008", "Unsafe property or inline event attribute: "+name)
 			continue
 		}
@@ -274,12 +274,12 @@ func (g *generator) element(n Node, parent, scope string, depth int) {
 			valid := strings.EqualFold(n.Tag, "input") && name == "value"
 			for _, other := range n.Attributes {
 				if strings.EqualFold(other.Name, "type") && !strings.EqualFold(other.Value, "text") ||
-					other.Name == "[type]" || other.Name == "[value]" || other.Name == "value" {
+					other.Name == "[type]" || other.Name == "[value]" || other.Name == "value" || other.Name == "(input)" {
 					valid = false
 				}
 			}
 			if !valid {
-				g.error(n, "F2010", "Two-way binding supports only [(value)] on text input without another value binding or dynamic type")
+				g.error(n, "F2010", "Two-way binding supports only [(value)] on text input without another value binding, input handler, or dynamic type")
 				continue
 			}
 			expr := mapped(g.expression(n, attr.Value), attr.ValueStart)
@@ -306,6 +306,10 @@ func (g *generator) component(n Node, ctor, parent, scope string) {
 		kind, name := attributeKind(attr.Name)
 		if name == "" || kind == "static" && strings.ContainsAny(name, "[]()") {
 			g.error(n, "F2007", "Malformed component binding: "+attr.Name)
+			continue
+		}
+		if dangerousProperty(name) {
+			g.error(n, "F2008", "Unsafe property or inline event attribute: "+name)
 			continue
 		}
 		switch kind {

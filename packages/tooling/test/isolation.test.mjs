@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, rm, symlink, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import { checkInstalledDependencies, hostPlatform } from "../../../scripts/package-isolation.mjs";
 
@@ -18,7 +18,8 @@ test("host libc detection distinguishes glibc, musl and unknown without guessing
 });
 
 async function fixture(t) {
-  const root = await mkdtemp(resolve(tmpdir(), "angulus-isolation-"));
+  const root = resolve(process.cwd(), ".angulus", `isolation-test-${randomUUID()}`);
+  await mkdir(root, { recursive: true });
   t.after(() => rm(root, { recursive: true }));
   const project = resolve(root, "project");
   const nodeModules = resolve(project, "node_modules");
@@ -111,6 +112,14 @@ test("an installed symlink to an incompatible ancestor package is still rejected
   const { pkg, check, nodeModules } = await fixture(t);
   await pkg("lightningcss", { optionalDependencies: { native: "1.0.0" } });
   const target = await pkg("native", { os: ["darwin"] }, true);
-  await symlink(target, resolve(nodeModules, "native"), "dir");
+  try {
+    await symlink(target, resolve(nodeModules, "native"), "dir");
+  } catch (error) {
+    if (error.code === "EPERM") {
+      t.skip("Creating directory symlinks requires Windows Developer Mode or elevation");
+      return;
+    }
+    throw error;
+  }
   await assert.rejects(check(glibc), /outside isolated/);
 });

@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Window } from "happy-dom";
 import {
-  Scope, signal, computed, effect, flushSync, input, output, Component,
+  Scope, signal, computed, effect, flushSync, input, output,
   defineComponent, mount, onMount, onDestroy, element, text, bind, listen,
   setProperty, ifBlock, forBlock, switchBlock, mountChild,
 } from "../src/index.js";
@@ -67,7 +67,6 @@ test("independent component instances, event this, lifecycles, and disposal", ()
     onMount() { order.push("class mount"); }
     onDestroy() { order.push("class destroy"); }
   }
-  Component({ selector: "a-counter", templateUrl: "./counter.html" })(Counter);
   defineComponent(Counter, (ctx, parent, scope) => {
     const button = element(scope, parent, "button", "f-test");
     const label = text(button, "");
@@ -238,7 +237,6 @@ test("all cleanup runs on errors, failed mounts clean up, uncompiled classes rej
   assert.throws(() => mount(Broken, host()), /render failed/);
   assert.equal(cleaned, 3);
   class Uncompiled {}
-  assert.equal(Component({ selector: "uncompiled-test", templateUrl: "./test.html" })(Uncompiled), Uncompiled);
   assert.ok(new Uncompiled() instanceof Uncompiled);
   assert.throws(() => mount(Uncompiled, host()), /has not been compiled/);
 });

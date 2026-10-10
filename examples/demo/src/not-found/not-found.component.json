@@ -1,0 +1,6 @@
+{
+  "selector": "app-not-found",
+  "module": "./not-found.ts",
+  "export": "NotFoundComponent",
+  "template": "./not-found.html"
+}

@@ -1,4 +1,4 @@
-import { Component, computed, signal } from "@angulus/core";
+import { computed, signal } from "@angulus/core";
 import { HttpError, httpResource } from "@angulus/http";
 
 interface User { id: number; name: string }
@@ -12,11 +12,6 @@ function parseUser(value: unknown): User {
   return { id: value.id, name: value.name };
 }
 
-@Component({
-  selector: "app-http",
-  templateUrl: "./http.html",
-  styleUrl: "./http.css",
-})
 export class HttpComponent {
   readonly selected = signal<number | undefined>(1);
   readonly user = httpResource(() => {

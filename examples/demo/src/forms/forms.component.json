@@ -1,0 +1,7 @@
+{
+  "selector": "app-forms",
+  "module": "./forms.ts",
+  "export": "FormsComponent",
+  "template": "./forms.html",
+  "styles": ["./forms.css"]
+}

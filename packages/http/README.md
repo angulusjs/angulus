@@ -13,12 +13,11 @@ Use matching Angulus versions from a release containing HTTP support.
 ## Reactive reads
 
 ```ts
-import { Component, signal } from "@angulus/core";
+import { signal } from "@angulus/core";
 import { httpResource } from "@angulus/http";
 
 interface User { id: number; name: string }
 
-@Component({ selector: "app-user", templateUrl: "./user.html" })
 export class UserProfile {
   readonly id = signal<number | undefined>(1);
   readonly user = httpResource<User>(() => {
@@ -27,6 +26,11 @@ export class UserProfile {
   });
 }
 ```
+
+`UserProfile` is an ordinary class. The CLI connects a component to its
+template through a `user-profile.component.json` descriptor; no decorator is
+used. Full type-driven checking of bindings in that template is not yet
+implemented.
 
 ```html
 @if (user.isLoading()) {

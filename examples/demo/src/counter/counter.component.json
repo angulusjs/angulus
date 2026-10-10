@@ -1,0 +1,8 @@
+{
+  "selector": "app-counter",
+  "module": "./counter.ts",
+  "export": "CounterComponent",
+  "template": "./counter.html",
+  "styles": ["./counter.css"],
+  "imports": ["./badge.component.json"]
+}

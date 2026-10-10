@@ -1,81 +1,42 @@
 # Go template compiler
 
-Run `go run ./cmd/angulus-compiler` from the repository root. Standard input/output
-carry one JSON record per line; stdout never carries logging. Protocol version is
-`1`, request IDs are integers, and responses may arrive out of order.
+The Go CLI uses this package in-process. Run `go run ./cmd/angulus check
+--root <project>` to discover `*.component.json` files, parse their templates,
+generate compiler-owned facades/render modules, and invoke native TSGo.
+`go run ./cmd/angulus build --root <project>` additionally bundles browser ESM
+with esbuild's public Go API.
 
-- Parse: `{version:1,id,method:"parse",source,file}` returns
-  `{version:1,id,result:{nodes,diagnostics}}`.
-- Generate: `{version:1,id,method:"generate",nodes,scopeId,components,file?}` returns
-  `{version:1,id,result:{code,diagnostics,mappings?}}`. `components` maps selectors to
-  imported JavaScript constructor identifiers.
-- Cancel: `{version:1,id,method:"cancel",targetId}` returns
-  `{version:1,id,result:{cancelled:boolean}}`. An in-flight cancelled request
-  receives `error:{code:"CANCELLED",message}`; completed requests are unaffected.
-- Shutdown: `{version:1,id,method:"shutdown"}` cancels outstanding requests,
-  waits for their termination, acknowledges `{shutdown:true}`, and exits.
-  EOF drains pending work. Invalid protocol requests return `error:{code,message}`.
+The parser supports text/interpolation, element and property/event bindings,
+text-input `[(value)]`, `@if`/`@else`, tracked `@for`, and `@switch`. It returns
+UTF-16 offsets for template diagnostics. The generator emits DOM operations
+against `@angulus/core`; it does not execute source or template strings.
 
-Source diagnostics have `{file,start,end,code,message,severity:"error"}`.
-Ranges are zero-based, end-exclusive UTF-16 offsets, matching JavaScript strings.
-Protocol generation diagnostics use the optional request `file`; standalone
-Go `Generate` diagnostics have an empty file for the caller to populate.
-Invalid generation returns an empty code string, not partially valid code.
-The transport accepts records up to 16 MiB and nesting up to 256 levels.
+The project frontend parses a restricted expression grammar with operator
+precedence, member/element access, calls, optional chaining, literals, arrays,
+objects, and simple arrow callbacks. It qualifies free component members as
+`ctx.member`, preserves property keys and lexical shadowing, and treats `@for`
+render locals as signals while track expressions receive plain values.
+Unsupported TypeScript syntax is diagnosed rather than passed through as if it
+had been analyzed.
 
-`mappings` is an optional array of `{generated:number,source:number}` anchors.
-Both offsets are zero-based UTF-16: `generated` is relative to the returned
-factory `code`, and `source` is relative to the original template. Anchors are
-sorted by generated offset and cover node starts, binding/static attribute
-values, and expression starts (including collection/track/case expressions).
-Repeated emission of an expression, such as a two-way binding, has an anchor at
-each occurrence. The frontend preserves AST source offsets while qualifying
-expressions, then rebases generated offsets when embedding the factory in its
-module and combines the anchors with its TypeScript source map. These are
-node/expression anchors, not character-by-character maps of rewritten
-expressions. Empty or invalid output has no mappings.
+Preparation emits a TypeScript contract checker alongside each render module.
+Native TSGo checks component member visibility and expression types, required
+and typed child inputs, typed child outputs, DOM property/event types, two-way
+signal values, and narrowing through generated `@if`, `@switch`, and `@for`
+control flow. Checker diagnostics map back to the originating HTML expression,
+binding, or element span. This remains a restricted template language, not a
+general TypeScript parser; diagnostics identify the relevant HTML span rather
+than a precise token mapping.
 
-## AST
+Scoped CSS uses the public `github.com/tdewolff/parse/v2/css` parser. Selectors
+are scoped per compound, keyframes are renamed across a component's ordered
+styles, and relative URL resources are embedded. Scoped `@import`, nesting,
+`:host`, `:global`, and `:root` are diagnosed. CSS output is linked eagerly in
+the current CLI; lazy-route CSS splitting is not implemented.
 
-Nodes contain `kind,start,end` and optional fields:
+Generated files are written beside their descriptor and recorded in
+`.angulus/project-generated.json`. The CLI refuses to overwrite user files that
+collide with generated names and removes stale generated files only when their
+compiler marker is intact.
 
-```
-text:          text
-interpolation: expression,exprStart
-element:       tag,attributes,children
-if:            expression,exprStart,children,otherwise
-for:           item,expression,exprStart,track,trackStart,children
-switch:        expression,exprStart,cases
-```
-
-Attributes are `{name,value,start,valueStart}`; names preserve `[property]`,
-`(event)`, and `[(value)]` delimiters. Static HTML entities are decoded.
-Cases are `{expression,exprStart,children}`; the default case has `expression:""`.
-Optional empty fields may be omitted. Text preserves whitespace.
-
-The handwritten parser handles nested elements/control flow and nested
-expression delimiters, strings, and comments. Expressions are retained as
-source, not evaluated or interpreted as TypeScript. The frontend validates its
-supported expression grammar and resolves names before calling generate.
-
-The generated expression is `(ctx,host,scope)=>{...}` and references the
-externally supplied `__f` runtime namespace. Loop render bindings (`item` and
-`$index`) are signals; the frontend qualifies reads accordingly. Track callbacks
-receive plain item/index values. `ctx`, `__f`, `$index`, `arguments`, and `eval`
-are reserved loop-item identifiers. Internal DOM/scope variables are unique.
-
-Supported template syntax: interpolation, property/event bindings, text-input
-two-way bindings, `@if/@else if/@else`, tracked `@for`, and `@switch` with a final
-optional `@default`. Children on components (other than whitespace) are rejected:
-content projection is not implemented. Two-way bindings accept only `[(value)]`
-on `<input>` with omitted type or static `type="text"`.
-
-Raw HTML properties, inline `on*` attributes, active-content elements, and
-executable static URLs are rejected. Interpolation uses text nodes.
-Dynamic DOM URL safety is a runtime responsibility. The frontend is responsible
-for expression type checking, component contracts, unknown custom-element
-diagnostics, and resolving imports.
-
-Run `go test ./internal/compiler ./cmd/angulus-compiler` (and `-race`) to cover
-parsing, malformed input, UTF-16 spans, executable generated JavaScript, and the
-persistent protocol.
+Run `go test ./...` for parser, generator, project, CSS, build and server tests.

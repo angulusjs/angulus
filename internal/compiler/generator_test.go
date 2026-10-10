@@ -53,13 +53,15 @@ func TestGenerateControlFlowAndComponents(t *testing.T) {
 
 func TestGenerateRejectsUnsupported(t *testing.T) {
 	for _, source := range []string{
-		`<div onclick="bad()"></div>`, `<div [innerHTML]="ctx.html"></div>`,
+		`<div onclick="bad()"></div>`, `<button (onclick)="bad()"></button>`, `<div [innerHTML]="ctx.html"></div>`,
 		`<iframe srcdoc="bad"></iframe>`, `<script>alert(1)</script>`,
 		`<a href="java&#x73;cript:bad()">bad</a>`,
 		`<input type="checkbox" [(value)]="ctx.value">`, `<select [(value)]="ctx.value"></select>`,
 		`<input [type]="ctx.type" [(value)]="ctx.value">`,
 		`<input value="x" [(value)]="ctx.value">`, `<input [(checked)]="ctx.value">`,
+		`<input [(value)]="ctx.value" (input)="ctx.changed($event)">`,
 		`<child-box><span>projected</span></child-box>`, `<child-box [(value)]="ctx.value"/>`,
+		`<child-box [innerHTML]="ctx.html"/>`, `<child-box (onclick)="ctx.run($event)"/>`,
 		`@for (ctx of ctx.items(); track ctx.id) {}`,
 		`<input [broken="ctx.value">`,
 	} {

@@ -4,3 +4,7 @@ dist/
 test-results/
 playwright-report/
 *.tsbuildinfo
+*.component.generated.ts
+*.component.render.generated.ts
+*.component.styles.generated.css
+*.component.template-check.generated.ts

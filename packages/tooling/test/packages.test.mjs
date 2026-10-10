@@ -3,7 +3,6 @@ import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
-import { packPackages, targets, validatePackageManifests } from "../../../scripts/pack.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const readManifest = name => readFile(resolve(root, "packages", name, "package.json"), "utf8").then(JSON.parse);
@@ -37,58 +36,22 @@ test("publishable runtime manifests expose compiled ESM and declaration files", 
   assert.equal(http.sideEffects, false);
   assert.equal(forms.sideEffects, false);
   assert.equal(tooling.optionalDependencies, undefined, "Unpublished compiler dependencies belong only in staged manifests");
-  assert.ok(tooling.files.includes("types"));
-  assert.deepEqual(tooling.exports["./vite"], {
-    types: "./types/vite.d.mts",
-    import: "./src/vite.mjs",
-    default: "./src/vite.mjs",
-  });
-
-  assert.deepEqual(tooling.exports["./library"], {
-    types: "./types/library.d.mts",
-    import: "./src/library.mjs",
-    default: "./src/library.mjs",
-  });
+  assert.deepEqual(tooling.bin, { angulus: "./src/cli.mjs" });
+  assert.deepEqual(tooling.exports ?? {}, {});
+  assert.deepEqual(tooling.dependencies, { "@typescript/native-preview": "7.0.0-dev.20260707.2" });
+  assert.ok(tooling.files.includes("src/*.mjs"));
+  assert.ok(tooling.files.includes("component.schema.json"));
+  const schema = JSON.parse(await readFile(resolve(root, "packages/tooling/component.schema.json"), "utf8"));
+  assert.equal(schema.additionalProperties, false);
+  assert.deepEqual(schema.required, ["selector", "module", "export", "template"]);
 });
 
-test("packing validates runtime versions and exact core dependency before building", async () => {
-  const manifests = await Promise.all(["core", "router", "forms", "http", "tooling"].map(readManifest));
-  const version = manifests[0].version;
-  assert.equal(validatePackageManifests(manifests), version);
-  const forms = manifests.find(manifest => manifest.name === "@angulus/forms");
-  const http = manifests.find(manifest => manifest.name === "@angulus/http");
-  forms.version = `${version}-mismatch`;
-  assert.throws(() => validatePackageManifests(manifests), /versions must match/);
-  forms.version = version;
-  http.version = `${version}-mismatch`;
-  assert.throws(() => validatePackageManifests(manifests), /versions must match/);
-  http.version = version;
-  for (const dependency of [`^${version}`, `~${version}`, "*", "0.0.0", undefined]) {
-    forms.dependencies["@angulus/core"] = dependency;
-    assert.throws(() => validatePackageManifests(manifests), /@angulus\/forms must depend on the exact core release version/);
-  }
-  forms.dependencies["@angulus/core"] = version;
-  for (const dependency of [`^${version}`, `~${version}`, "*", "0.0.0", undefined]) {
-    http.dependencies["@angulus/core"] = dependency;
-    assert.throws(() => validatePackageManifests(manifests), /@angulus\/http must depend on the exact core release version/);
-  }
-  http.dependencies["@angulus/core"] = version;
-  const router = manifests.find(manifest => manifest.name === "@angulus/router");
-  router.dependencies["@angulus/core"] = `^${version}`;
-  assert.throws(() => validatePackageManifests(manifests), /@angulus\/router must depend on the exact core release version/);
-});
-
-test("compiler package targets cover the seven supported npm OS/CPU pairs", () => {
-  assert.deepEqual(targets.map(([platform, arch]) => `${platform}-${arch}`), [
-    "darwin-x64", "darwin-arm64", "linux-x64", "linux-arm64", "linux-arm", "win32-x64", "win32-arm64",
-  ]);
-  assert.deepEqual(targets.filter(([platform]) => platform === "win32").map(([, , goos]) => goos), ["windows", "windows"]);
-});
-
-test("packing rejects invalid arguments and tag mismatches before starting builds", async () => {
-  await assert.rejects(packPackages(["--unknown"]), /Usage:/);
-  await assert.rejects(packPackages(["--tag", "0.1.0"]), /Release tag/);
-  const { version } = await readManifest("core");
-  const different = version === "999.0.0" ? "998.0.0" : "999.0.0";
-  await assert.rejects(packPackages(["--tag", `v${different}`]), /does not match package version/);
+test("Go CLI source build and native TypeScript commands select Go and TSGo executables", async () => {
+  const rootManifest = JSON.parse(await readFile(resolve(root, "package.json"), "utf8"));
+  assert.equal(rootManifest.scripts.compiler, "go run ./cmd/angulus-release build-cli");
+  assert.equal(rootManifest.scripts.typecheck, "node scripts/tsgo.mjs --noEmit -p tsconfig.json");
+  const pack = await readFile(resolve(root, "internal/release/pack.go"), "utf8");
+  assert.ok(pack.includes("./cmd/angulus"));
+  assert.match(pack, /binaryName \+= "\.exe"/);
+  assert.equal(pack.includes("cmd/angulus-compiler"), false);
 });

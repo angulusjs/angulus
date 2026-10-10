@@ -14,10 +14,9 @@ forms support.
 ## Quick start
 
 ```ts
-import { Component, signal } from "@angulus/core";
+import { signal } from "@angulus/core";
 import { formControl, formGroup, Validators } from "@angulus/forms";
 
-@Component({ selector: "app-profile", templateUrl: "./profile.html" })
 export class Profile {
   readonly form = formGroup({
     name: formControl("", {
@@ -37,6 +36,21 @@ export class Profile {
   }
 }
 ```
+
+The class is ordinary TypeScript. To use it as a CLI-discovered component,
+describe it in `profile.component.json`:
+
+```json
+{
+  "selector": "app-profile",
+  "module": "./profile.ts",
+  "export": "Profile",
+  "template": "./profile.html"
+}
+```
+
+The current CLI does not yet provide full type-driven template binding checks;
+this runtime package API is available independently of that compiler limitation.
 
 ```html
 <form [noValidate]="true" (submit)="submit($event)">
