@@ -1,0 +1,7 @@
+{
+  "selector": "app-http",
+  "module": "./http.ts",
+  "export": "HttpComponent",
+  "template": "./http.html",
+  "styles": ["./http.css"]
+}

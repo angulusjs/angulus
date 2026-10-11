@@ -1,0 +1,7 @@
+{
+  "selector": "demo-badge",
+  "module": "./badge.ts",
+  "export": "BadgeComponent",
+  "template": "./badge.html",
+  "styles": ["./badge.css"]
+}

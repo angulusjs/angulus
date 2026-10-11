@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Angulus component descriptor",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["selector", "module", "export", "template"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "selector": { "type": "string", "pattern": "^[a-z][a-z0-9._-]*-[a-z0-9._-]+$" },
+    "module": { "type": "string", "minLength": 1, "description": "Source module path relative to this descriptor." },
+    "export": { "type": "string", "pattern": "^[A-Za-z_$][A-Za-z0-9_$]*$" },
+    "template": { "type": "string", "minLength": 1 },
+    "styles": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "customElements": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^[a-z][a-z0-9._-]*-[a-z0-9._-]+$" }
+    },
+    "imports": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          { "type": "string", "minLength": 1, "description": "Source component descriptor path." },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["module", "export"],
+            "properties": {
+              "module": { "type": "string", "minLength": 1, "description": "Installed library package or public subpath." },
+              "export": { "type": "string", "pattern": "^[A-Za-z_$][A-Za-z0-9_$]*$" }
+            }
+          }
+        ]
+      }
+    }
+  }
+}

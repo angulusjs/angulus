@@ -1,12 +1,5 @@
-import { Component, computed, signal } from "@angulus/core";
-import { BadgeComponent } from "./badge";
+import { computed, signal } from "@angulus/core";
 
-@Component({
-  selector: "app-counter",
-  templateUrl: "./counter.html",
-  styleUrl: "./counter.css",
-  imports: [BadgeComponent],
-})
 export class CounterComponent {
   readonly count = signal(0);
   readonly reachedLimit = computed(() => this.count() >= 10);
@@ -15,7 +8,7 @@ export class CounterComponent {
   readonly items = signal([
     { id: 1, label: "Signals" },
     { id: 2, label: "Go compiler" },
-    { id: 3, label: "Vite" },
+    { id: 3, label: "esbuild" },
   ]);
 
   increment(): void { this.count.update(value => value + 1); }

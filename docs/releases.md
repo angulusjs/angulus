@@ -17,7 +17,7 @@ All packages share one version:
 - `@angulus/forms`: typed signal-based forms, synchronous validators and declarations;
   depends on the exact same core version.
 - `@angulus/http`: JSON HTTP client and reactive resources; depends on the exact same core version.
-- `@angulus/tooling`: CLI, Vite plugin and native TypeScript checker integration.
+- `@angulus/tooling`: Node launcher for the Go CLI and native TSGo dependency.
 - `@angulus/compiler-darwin-x64`
 - `@angulus/compiler-darwin-arm64`
 - `@angulus/compiler-linux-x64`
@@ -26,17 +26,26 @@ All packages share one version:
 - `@angulus/compiler-win32-x64`
 - `@angulus/compiler-win32-arm64`
 
-The compiler packages contain prebuilt Go executables and declare npm `os`/`cpu`
+The platform packages contain the Go CLI executable and declare npm `os`/`cpu`
 constraints. The packed tooling manifest pins all seven as optional dependencies;
 npm installs the compatible one. **Application developers do not need Go.**
 The compiler and tooling versions must match. Missing optional dependencies or
 unsupported platforms produce explicit errors rather than compiling Go inside
 the user's application. Source-checkout development still requires Go.
 
-The Go binaries are cross-compiled without cgo. This is not a claim that all
-seven platforms have complete browser-test coverage: CI runs the framework tests
-on Linux/macOS and the browser workflow on Linux. Native npm installation smoke
-tests run on the platform executing the packaging check.
+The Go binaries are cross-compiled without cgo. CI runs Go/runtime checks on
+Linux and macOS; the isolated npm-install smoke test runs on Linux and verifies
+the installed Go CLI, descriptor check/build, and operation without Go.
+
+Workspace orchestration is native Go in `cmd/angulus-release` and
+`internal/release`. npm entrypoints invoke `go run ./cmd/angulus-release` for
+CLI builds, ordered native TSGo runtime/declaration builds, size measurement,
+packing, version updates and publication. npm is only the external package
+manager; Node scripts are retained for installation smoke/isolation tests.
+`npm run compiler` also builds `.angulus/bin/angulus-release` for those tests.
+The credential-bearing release job downloads this verified native tool as a
+separate artifact and invokes it directly: it neither compiles Go nor installs
+workspace dependencies.
 
 ## One-time setup
 
@@ -80,9 +89,7 @@ task itself does not execute these commands:
 npm ci
 npm test
 npm run typecheck
-npm run build
-npx playwright install chromium
-npm run test:browser
+npm run size
 npm run packages:pack -- --tag v0.2.0
 npm run packages:smoke
 npm run release:publish -- --tag v0.2.0 --dry-run
@@ -119,6 +126,7 @@ package names.
    npm ci
    npm test
    npm run typecheck
+   npm run size
    npm run packages:pack -- --tag v0.2.1
    npm run packages:smoke
    npm run release:publish -- --tag v0.2.1 --dry-run
@@ -129,13 +137,12 @@ package names.
 3. Create and push the tag **`v0.2.1`** pointing at that reviewed commit.
 4. Create and **publish a GitHub Release** for that exact tag.
    Merely pushing a tag or saving a release draft does not publish npm packages.
-5. The preparation job checks out the tag, installs the lockfile, runs tests and
-   the browser workflow, builds all compiler targets, packs the packages, and
-   installs the tarballs into a dedicated application under
+5. The preparation job checks out the tag, installs the lockfile, runs Go,
+   runtime, tooling and native TypeScript checks, builds all CLI targets, packs
+   the packages, and installs the tarballs into a dedicated application under
    `.angulus/release/smoke/project` with its own `node_modules`. That smoke test
    rejects workspace symlinks and dependency resolution outside the installation,
-   checks actual imports, forms declarations and reactive validation/state,
-   and CLI checks/tests/build, and verifies operation
+   verifies CLI check, test and ESM application build, and operation
    without Go. The dependency audit skips optional packages whose `os`, `cpu`,
    or Linux `libc` metadata excludes the host (for example, musl binaries on a
    glibc runner). Compatible optional packages still cannot resolve from the
@@ -167,7 +174,7 @@ Install a prerelease with matching versions for the public packages you use
 ## Failures and reruns
 
 There is no atomic multi-package publish operation on npm. Before the first
-publish, the script checks **every** package for conflicting existing versions,
+publish, the Go tool checks **every** package for conflicting existing versions,
 missing initial bootstrap, registry failures and local artifact corruption.
 
 If the publisher fails midway, use **Re-run failed jobs** on the same workflow
@@ -199,3 +206,10 @@ correct. Only an authorized real release can verify that external setup.
 
 Generated staging directories, tarballs and the release manifest are under
 ignored `.angulus/release/`. Keep them out of source control.
+Each native platform tarball includes `THIRD_PARTY_NOTICES` with the licenses
+of embedded Go dependencies and the Go runtime. Packaging fails rather than
+omitting an unavailable license file.
+
+In Windows PowerShell, use `npm.cmd run ... -- ...` if the `npm.ps1` shim
+consumes option arguments (for example `--tag`); the native release executable
+also accepts the same arguments directly.

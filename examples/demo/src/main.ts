@@ -1,4 +1,3 @@
-/// <reference types="vite/client" />
 import { createRouter } from "@angulus/router";
 import "./global.css";
 
@@ -8,16 +7,16 @@ if (!outlet) throw new Error("Missing application outlet");
 const router = createRouter({
   outlet,
   routes: [
-    { path: "/", load: () => import("./counter/counter").then(module => module.CounterComponent) },
-    { path: "/forms", load: () => import("./forms/forms").then(module => module.FormsComponent) },
-    { path: "/http", load: () => import("./http/http").then(module => module.HttpComponent) },
+    { path: "/", load: () => import("./counter/counter.component.generated").then(module => module.CounterComponent) },
+    { path: "/forms", load: () => import("./forms/forms.component.generated").then(module => module.FormsComponent) },
+    { path: "/http", load: () => import("./http/http.component.generated").then(module => module.HttpComponent) },
     {
       path: "/products/:id",
-      load: () => import("./products/product").then(module => module.ProductComponent),
+      load: () => import("./products/product.component.generated").then(module => module.ProductComponent),
       inputs: params => ({ id: params.id }),
     },
   ],
-  notFound: () => import("./not-found/not-found").then(module => module.NotFoundComponent),
+  notFound: () => import("./not-found/not-found.component.generated").then(module => module.NotFoundComponent),
 });
 
 function navigate(event: MouseEvent): void {
@@ -42,5 +41,4 @@ function pagehide(event: PageTransitionEvent): void {
 
 document.addEventListener("click", navigate);
 window.addEventListener("pagehide", pagehide);
-import.meta.hot?.dispose(dispose);
 void router.start();

@@ -1,7 +1,7 @@
 {
   "name": "@angulus/tooling",
   "version": "0.3.0",
-  "description": "Angulus CLI, compiler integration and Vite plugin",
+  "description": "Angulus Go CLI launcher",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -12,38 +12,17 @@
     "access": "public"
   },
   "files": [
-    "src/**/*.mjs",
-    "types",
+    "src/*.mjs",
+    "component.schema.json",
     "README.md",
     "LICENSE"
   ],
   "type": "module",
-  "bin": {
-    "angulus": "./src/cli.mjs"
-  },
-  "exports": {
-    "./library": {
-      "types": "./types/library.d.mts",
-      "import": "./src/library.mjs",
-      "default": "./src/library.mjs"
-    },
-    "./vite": {
-      "types": "./types/vite.d.mts",
-      "import": "./src/vite.mjs",
-      "default": "./src/vite.mjs"
-    }
-  },
+  "bin": { "angulus": "./src/cli.mjs" },
   "engines": {
     "node": ">=22.12.0"
   },
   "dependencies": {
-    "@jridgewell/sourcemap-codec": "1.6.0",
-    "@typescript/native-preview": "7.0.0-dev.20260707.2",
-    "magic-string": "0.30.21",
-    "postcss": "8.5.28",
-    "postcss-selector-parser": "7.1.6",
-    "postcss-value-parser": "4.2.0",
-    "typescript": "6.0.3",
-    "vite": "8.3.0"
+    "@typescript/native-preview": "7.0.0-dev.20260707.2"
   }
 }

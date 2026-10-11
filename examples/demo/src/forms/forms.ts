@@ -1,11 +1,6 @@
-import { Component, signal } from "@angulus/core";
+import { signal } from "@angulus/core";
 import { formControl, formGroup, Validators } from "@angulus/forms";
 
-@Component({
-  selector: "app-forms",
-  templateUrl: "./forms.html",
-  styleUrl: "./forms.css",
-})
 export class FormsComponent {
   readonly form = formGroup({
     name: formControl("", { validators: [Validators.required, Validators.minLength(2)] }),

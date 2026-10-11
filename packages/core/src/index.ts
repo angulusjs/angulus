@@ -245,17 +245,6 @@ export function output<T>(): Output<T> {
   };
 }
 export type ComponentType<T = any> = new () => T;
-export interface ComponentMetadata {
-  selector: string;
-  templateUrl: string;
-  styleUrl?: string;
-  imports?: readonly ComponentType[];
-  customElements?: readonly string[];
-}
-/** Compile-time marker. The compiler attaches the executable definition separately. */
-export function Component(_metadata: ComponentMetadata) {
-  return <T extends ComponentType>(target: T, _context?: ClassDecoratorContext<T>): T => target;
-}
 export type Render<T> = (instance: T, parent: Node, scope: Scope) => void;
 const definition = Symbol("Angulus component definition");
 interface Definition<T> { render: Render<T>; scopeId: string }

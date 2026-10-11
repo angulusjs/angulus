@@ -1,0 +1,7 @@
+{
+  "selector": "app-product",
+  "module": "./product.ts",
+  "export": "ProductComponent",
+  "template": "./product.html",
+  "styles": ["./product.css"]
+}

@@ -42,13 +42,15 @@ jobs:
       - run: go test -race ./...
       - run: npm test
       - run: npm run typecheck
+      - run: npm run check
       - run: npm run build
       - run: npx playwright install --with-deps chromium
       - run: npm run test:browser
+      - run: npm run size
       - run: npm run packages:pack -- --tag "$RELEASE_TAG"
       - run: npm run packages:smoke
       - name: Validate versions and tarball integrity without publishing
-        run: node scripts/publish.mjs --tag "$RELEASE_TAG" --dry-run
+        run: npm run release:publish -- --tag "$RELEASE_TAG" --dry-run
 
       - name: Upload verified npm tarballs
         uses: actions/upload-artifact@v6
@@ -57,6 +59,14 @@ jobs:
           path: |
             .angulus/release/manifest.json
             .angulus/release/tarballs/*.tgz
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload native release tool
+        uses: actions/upload-artifact@v6
+        with:
+          name: angulus-release-tool
+          path: .angulus/bin/angulus-release
           include-hidden-files: true
           if-no-files-found: error
           retention-days: 14
@@ -69,6 +79,7 @@ jobs:
           path: test-results/
           if-no-files-found: ignore
           retention-days: 7
+
 
   publish:
     name: Publish verified tarballs using npm OIDC
@@ -101,5 +112,11 @@ jobs:
           name: npm-release
           path: .angulus/release
 
+      - uses: actions/download-artifact@v7
+        with:
+          name: angulus-release-tool
+          path: .angulus/bin
       - name: Publish in dependency order with provenance
-        run: node scripts/publish.mjs --tag "$RELEASE_TAG"
+        run: |
+          chmod +x .angulus/bin/angulus-release
+          .angulus/bin/angulus-release publish --tag "$RELEASE_TAG"

@@ -1,4 +1,4 @@
-import { Component, input, output, signal, type Input, type InputValue, type OutputValue } from "../src/index.js";
+import { input, output, signal, type Input, type InputValue, type OutputValue } from "../src/index.js";
 
 function checkInput<I extends Input<unknown>>(_input: I, _value: InputValue<NoInfer<I>>): void {}
 
@@ -19,6 +19,5 @@ function verifyContracts(): void {
   // @ts-expect-error Outputs preserve their payload type.
   const badEvent: OutputValue<typeof changed> = "invalid";
   void badEvent;
-  Component({ selector: "test-contract", templateUrl: "./test.html", customElements: ["third-party-widget"] })(class {});
 }
 void verifyContracts;

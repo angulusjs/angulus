@@ -1,9 +1,10 @@
 # @angulus/core
 
-Components use `@Component({selector, templateUrl, styleUrl?, imports?, customElements?})`.
-The decorator is a no-op compile-time marker; mounting an uncompiled class throws.
-The compiler attaches a render function with `defineComponent(Class, (ctx, parent, scope) => {}, scopeId)`.
-There is no component registry, runtime template parser, or reflection.
+The Go CLI discovers components through `*.component.json` descriptors; classes
+are ordinary TypeScript exports, not decorated with `@Component`. It generates
+separate facade/render modules that connect a constructor to this runtime using
+`defineComponent(Class, (ctx, parent, scope) => {}, scopeId)`. The runtime has no
+component registry, template parser, reflection, or Vite integration.
 
 `mount(Class, host, {inputs: {name: value}})` returns `{instance, scope, destroy()}`.
 Each mount constructs a new instance. Inputs are callable read-only `Input<T>` values;

@@ -3,12 +3,11 @@ import test from 'node:test';
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { spawn, spawnSync, type SpawnSyncReturns } from 'node:child_process';
-import { EventEmitter, once } from 'node:events';
+import { spawn, spawnSync } from 'node:child_process';
+import { once } from 'node:events';
 import net from 'node:net';
 import { fileURLToPath } from 'node:url';
-import { generateComponent, parseArgs, readConfig } from '../src/cli.mjs';
-import { angulus, isNavigationRequest } from '../src/vite.mjs';
+import { cliLocation } from '../src/binary.mjs';
 
 const workspace = path.resolve(fileURLToPath(new URL('../../..', import.meta.url)));
 const cli = path.join(workspace, 'packages/tooling/src/cli.mjs');
@@ -21,351 +20,125 @@ async function fixture(run: (root: string) => unknown) {
   try { await run(root); } finally { fs.rmSync(root, { recursive: true, force: true }); }
 }
 
-test('CLI validates options and application configuration', async () => {
-  assert.equal(parseArgs(['serve', '--port', '5174']).port, 5174);
-  assert.equal(parseArgs(['build', '--lib']).lib, true);
-  assert.throws(() => parseArgs(['serve', '--port', '0']), /Port/);
-  assert.throws(() => parseArgs(['serve', '--root']), /requires a value/);
-  assert.throws(() => parseArgs(['serve', '--unknown']), /Unknown option/);
-  await fixture((root) => {
-    assert.deepEqual(readConfig(root), {});
-    fs.writeFileSync(path.join(root, 'angulus.config.json'), '{"test":"npm test"}');
-    assert.throws(() => readConfig(root), /argv array/);
-    fs.writeFileSync(path.join(root, 'angulus.config.json'), '{"library":{"entry":"src/public-api.ts"}}');
-    assert.equal(readConfig(root).library.entry, 'src/public-api.ts');
-    fs.writeFileSync(path.join(root, 'angulus.config.json'), '{"library":{"entry":42}}');
-    assert.throws(() => readConfig(root), /library/);
-  });
+function writeApplication(root: string) {
+  fs.mkdirSync(path.join(root, 'src'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({
+    name: 'angulus-cli-fixture',
+    private: true,
+    type: 'module',
+    scripts: { test: "node -e \"console.log('application tests ran')\"" },
+  }));
+  fs.writeFileSync(path.join(root, 'src/counter.component.json'), JSON.stringify({
+    selector: 'app-counter',
+    module: './counter.ts',
+    export: 'Counter',
+    template: './counter.html',
+  }));
+  fs.writeFileSync(path.join(root, 'src/counter.ts'), 'export class Counter { count = 1; }\n');
+  fs.writeFileSync(path.join(root, 'src/counter.html'), '<p>{{ count }}</p>\n');
+  fs.writeFileSync(path.join(root, 'src/main.ts'), 'import "./counter.component.generated";\n');
+  fs.writeFileSync(path.join(root, 'index.html'), '<!doctype html><script type="module" src="./src/main.ts"></script>\n');
+}
+
+test('source workspace launcher resolves the Go CLI binary without compiling it', async () => {
+  const location = await cliLocation();
+  assert.equal(location.sourceRoot, workspace);
+  assert.equal(location.binary, path.join(workspace, '.angulus/bin', process.platform === 'win32' ? 'angulus.exe' : 'angulus'));
+  assert.ok(fs.existsSync(location.binary), 'npm pretest must build the Go CLI before tooling tests');
 });
 
-test('workspace bin symlink executes the CLI and propagates failures', () => {
-  assert.ok(fs.lstatSync(workspaceBin).isSymbolicLink());
-  const help = spawnSync(workspaceBin, ['--help'], { cwd: workspace, encoding: 'utf8' });
-  assert.equal(help.status, 0, help.stderr);
-  assert.match(help.stdout, /Angulus commands:/);
-  const invalid = spawnSync(workspaceBin, ['unknown-command', '--json'], { cwd: workspace, encoding: 'utf8' });
-  assert.equal(invalid.status, 1, invalid.stderr);
-  assert.match(JSON.parse(invalid.stdout).message, /Unknown command/);
-  const invalidLibrary = spawnSync(workspaceBin, ['serve', '--lib', '--json'], { cwd: workspace, encoding: 'utf8' });
-  assert.equal(invalidLibrary.status, 1, invalidLibrary.stderr);
-  assert.match(JSON.parse(invalidLibrary.stdout).message, /--lib is supported only/);
-});
-
-test('generator creates executable public API test and protects every existing file', async () => {
-  await fixture((root) => {
-    const files = generateComponent(root, 'my-counter');
-    assert.equal(files.length, 4);
-    assert.ok(files.every((file: string) => fs.existsSync(file)));
-    const result = spawnSync(process.execPath, ['--import', 'tsx', '--test', files[3]], { cwd: workspace, encoding: 'utf8' });
-    assert.equal(result.status, 0, result.stderr + result.stdout);
-    fs.writeFileSync(files[1], 'keep me');
-    fs.unlinkSync(files[0]);
-    assert.throws(() => generateComponent(root, 'my-counter'), /Refusing to overwrite/);
-    assert.equal(fs.existsSync(files[0]), false);
-    assert.equal(fs.readFileSync(files[1], 'utf8'), 'keep me');
-    generateComponent(root, 'my-counter', true);
-    assert.match(fs.readFileSync(files[0], 'utf8'), /class MyCounterComponent/);
-    for (const name of ['../escape', '/absolute', 'two/parts', 'Bad Name', '']) {
-      assert.throws(() => generateComponent(root, name), /kebab-case/);
-    }
-  });
-});
-
-test('test command invokes configured application argv without a shell', async () => {
-  await fixture((root) => {
-    fs.writeFileSync(path.join(root, 'angulus.config.json'), JSON.stringify({
-      test: [process.execPath, '-e', 'console.log(process.argv[1]); process.exit(7)', 'literal; echo unsafe'],
-    }));
-    const result = spawnSync(process.execPath, [cli, 'test', '--root', root, '--json'], { encoding: 'utf8' });
-    assert.equal(result.status, 7, result.stderr);
-    assert.match(result.stderr, /literal; echo unsafe/);
-    assert.equal(result.stdout.trim().split('\n').length, 1);
-    assert.deepEqual(JSON.parse(result.stdout), { version: 1, type: 'tested', revision: 1, code: 7 });
-  });
-});
-
-test('SPA fallback is limited to HTML navigation, excluding APIs and assets', () => {
-  const request = (url: string, accept = 'text/html', method = 'GET') => ({ url, method, headers: { accept } });
-  assert.equal(isNavigationRequest(request('/products/123')), true);
-  for (const url of ['/api', '/api/missing', '/%61pi/missing', '/api%2Fmissing', '/missing.js', '/missing.css', '/logo.svg']) {
-    assert.equal(isNavigationRequest(request(url)), false);
-  }
-  assert.equal(isNavigationRequest(request('/route', '*/*')), false);
-  assert.equal(isNavigationRequest(request('/route', 'text/html', 'POST')), false);
-});
-
-test('occupied port exits promptly with a failure in text and JSON modes', async () => {
+test('npm bin command runs the Go CLI with inherited stdio', async () => {
   await fixture(async root => {
-    fs.writeFileSync(path.join(root, 'index.html'), '<!doctype html><title>Port test</title>');
-    const socket = net.createServer();
-    await new Promise<void>(resolve => socket.listen(0, '127.0.0.1', resolve));
-    const address = socket.address();
-    assert.ok(address && typeof address !== 'string');
-    try {
-      for (const json of [false, true]) {
-        for (let attempt = 0; attempt < 3; attempt++) {
-          const result: SpawnSyncReturns<string> = spawnSync(process.execPath, [
-            cli, 'serve', '--root', root, '--host', '127.0.0.1', '--port', String(address.port),
-            ...(json ? ['--json'] : []),
-          ], { cwd: workspace, encoding: 'utf8', timeout: 10_000, killSignal: 'SIGKILL' });
-          assert.ifError(result.error);
-          assert.equal(result.signal, null, result.stdout + result.stderr);
-          assert.equal(result.status, 1, result.stdout + result.stderr);
-          assert.match(result.stdout + result.stderr, /port .*already in use/i);
-          if (json) {
-            const events = result.stdout.trim().split('\n').map(line => JSON.parse(line));
-            assert.ok(events.some(event => event.type === 'error' && /already in use/.test(event.message)));
-            assert.ok(events.every(event => event.type !== 'listening'));
-          }
-        }
-      }
-    } finally {
-      await new Promise<void>((resolve, reject) => socket.close(error => error ? reject(error) : resolve()));
-    }
+    writeApplication(root);
+    const result = spawnSync(workspaceBin, ['check', '--root', root], {
+      cwd: workspace, encoding: 'utf8', shell: process.platform === 'win32',
+    });
+    assert.equal(result.status, 0, result.error?.message ?? result.stderr);
+    assert.match(result.stdout, /Checked 1 component/);
   });
 });
 
-function deferred() {
-  let release!: () => void;
-  const promise = new Promise<void>(resolve => { release = resolve; });
-  return { promise, release };
-}
+test('CLI launcher delegates descriptor check, ESM build and application tests', async () => {
+  await fixture(async root => {
+    writeApplication(root);
+    const check = spawnSync(process.execPath, [cli, 'check', '--root', root], { cwd: workspace, encoding: 'utf8' });
+    assert.equal(check.status, 0, check.stderr);
+    assert.match(check.stdout, /Checked 1 component/);
 
-for (const stage of ['startup', 'checking']) {
-  test(`plugin shutdown waits for ${stage} without restarting watches`, { timeout: 5000 }, async () => {
-    const entered = deferred();
-    const work = deferred();
-    let closes = 0;
-    let checks = 0;
-    let watched = 0;
-    let closed = false;
-    const events: { type: string }[] = [];
-    const project = {
-      dependencies: new Map<string, Set<string>>(),
-      async start() {
-        if (stage === 'startup') { entered.release(); await work.promise; }
-      },
-      async check() {
-        checks++;
-        if (stage === 'checking') { entered.release(); await work.promise; }
-        return [];
-      },
-      invalidate() {},
-      async close() { closes++; },
-    };
-    const watcher = Object.assign(new EventEmitter(), { add() { watched++; } });
-    const plugin = angulus({ project, onEvent: (event: { type: string }) => events.push(event) });
-    plugin.configResolved({ root: workspace, command: 'serve' });
-    plugin.configureServer({
-      watcher, middlewares: { use() {} },
-      ws: { send() { assert.fail('No browser updates are allowed after shutdown'); } },
-    });
-    try {
-      await entered.promise;
-      const closing = plugin.closeBundle();
-      assert.equal(plugin.closeBundle(), closing);
-      const finished = closing.then(() => { closed = true; });
-      await Promise.resolve();
-      assert.equal(closed, false);
-      assert.equal(closes, 0);
-      work.release();
-      await finished;
-      assert.equal(closes, 1);
-      assert.equal(checks, stage === 'startup' ? 0 : 1);
-      assert.equal(watched, 0);
-      assert.equal(watcher.listenerCount('all'), 0);
-      assert.deepEqual(events.map(event => event.type), ['checking']);
-      await assert.rejects(plugin.buildStart(), /closed/);
-    } finally {
-      work.release();
-      await plugin.closeBundle();
-    }
-  });
-}
+    const build = spawnSync(process.execPath, [cli, 'build', '--root', root], { cwd: workspace, encoding: 'utf8' });
+    assert.equal(build.status, 0, build.stderr);
+    assert.match(build.stdout, /as ESM/);
+    assert.ok(fs.existsSync(path.join(root, 'dist/index.html')));
+    assert.ok(fs.existsSync(path.join(root, 'dist/src/main.js')));
 
-test('plugin shares one project, watches dependencies, uses CSS pipeline and reloads templates', async () => {
-  const file = path.join(workspace, 'component.ts');
-  const css = path.join(workspace, 'component.css');
-  const html = path.join(workspace, 'component.html');
-  let starts = 0;
-  let closes = 0;
-  let checks = 0;
-  let activeChecks = 0;
-  let maxChecks = 0;
-  const project = {
-    dependencies: new Map([[file, new Set([css, html])]]),
-    async start() { starts++; },
-    async compile() { return { code: 'compiled', map: {}, dependencies: [html, css] }; },
-    async style() { return { code: '.counter{}', map: {} }; },
-    async check() {
-      checks++;
-      maxChecks = Math.max(maxChecks, ++activeChecks);
-      await new Promise((resolve) => setTimeout(resolve, 45));
-      activeChecks--;
-      return [];
-    },
-    invalidate() {},
-    async close() { closes++; },
-  };
-  const events: any[] = [];
-  const plugin = angulus({ project, onEvent: (event: any) => events.push(event) });
-  plugin.configResolved({ root: workspace, command: 'serve' });
-  const watched: string[] = [];
-  const context = { addWatchFile(file: string) { watched.push(file); } };
-  const transformed = await plugin.transform.call(context, '', file);
-  assert.ok(transformed);
-  assert.equal(transformed.code, 'compiled');
-  assert.ok(watched.includes(html));
-  assert.ok(!watched.includes(css));
-  const styleId = plugin.resolveId(file + '?angulus-style.css', file);
-  assert.ok(styleId);
-  assert.equal(plugin.resolveId(file + '?angulus-style', file), styleId);
-  assert.ok(styleId.endsWith('.css'));
-  const style = await plugin.load.call(context, styleId);
-  assert.ok(style);
-  assert.equal(style.code, '.counter{}');
-  assert.ok(watched.includes(css) && watched.includes(html));
-  assert.equal(starts, 1);
-  const cssModule = { id: styleId };
-  const scriptModule = { id: file };
-  const sent: any[] = [];
-  const invalidated: any[] = [];
-  const watcher = Object.assign(new EventEmitter(), {
-    add(files: string[]) { watched.push(...files); },
+    const applicationTest = spawnSync(process.execPath, [cli, 'test', '--root', root], { cwd: workspace, encoding: 'utf8' });
+    assert.equal(applicationTest.status, 0, applicationTest.stderr);
+    assert.match(applicationTest.stdout, /application tests ran/);
   });
-  const server = {
-    watcher, middlewares: { use() {} }, ws: { send(message: any) { sent.push(message); } },
-    moduleGraph: {
-      getModuleById(id: string) { return id === styleId ? cssModule : id === file ? scriptModule : undefined; },
-      invalidateModule(module: any) { invalidated.push(module); },
-    },
-  };
-  plugin.configureServer(server);
-  const cssUpdates = plugin.handleHotUpdate({ file: css, modules: [], server });
-  assert.deepEqual(cssUpdates, [cssModule]);
-  assert.equal(sent.some((event) => event.type === 'full-reload'), false);
-  plugin.handleHotUpdate({ file: html, modules: [], server });
-  assert.ok(sent.some((event) => event.type === 'full-reload'));
-  assert.ok(invalidated.includes(scriptModule));
-  const messagesBeforeGeneratedChange = sent.length;
-  assert.deepEqual(plugin.handleHotUpdate({ file: path.join(workspace, '.angulus/check/generated.ts'), modules: [], server }), []);
-  assert.equal(sent.length, messagesBeforeGeneratedChange);
-  while (checks === 0) await new Promise((resolve) => setTimeout(resolve, 5));
-  watcher.emit('all', 'change', path.join(workspace, 'unopened.ts'));
-  await new Promise((resolve) => setTimeout(resolve, 140));
-  assert.equal(maxChecks, 1);
-  assert.equal(checks, 2);
-  assert.ok(events.some((event) => event.type === 'checked' && event.revision === 2 && event.valid === true && !event.stale));
-  await plugin.closeBundle();
-  assert.equal(closes, 1);
-  assert.equal(watcher.listenerCount('all'), 0);
 });
 
-test('preview serves nested routes but never HTML for missing assets or API routes', async () => {
-  await fixture(async (root) => {
-    fs.mkdirSync(path.join(root, 'dist'));
-    fs.writeFileSync(path.join(root, 'dist/index.html'), '<!doctype html><h1>Angulus preview</h1>');
-    const socket = net.createServer();
-    await new Promise<void>((resolve) => socket.listen(0, '127.0.0.1', resolve));
-    const port = (socket.address() as net.AddressInfo).port;
-    await new Promise<void>((resolve) => socket.close(() => resolve()));
-    const child = spawn(process.execPath, [cli, 'preview', '--root', root, '--host', '127.0.0.1', '--port', String(port), '--json'], {
-      cwd: workspace, stdio: ['ignore', 'pipe', 'pipe'],
-    });
+test('CLI reports invalid descriptor projects through stdio and a failing exit code', async () => {
+  await fixture(async root => {
+    const result = spawnSync(process.execPath, [cli, 'check', '--root', root], { cwd: workspace, encoding: 'utf8' });
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /No \*\.component\.json component descriptors were found/);
+  });
+});
 
-    let stdout = '';
-    let stderr = '';
-    child.stdout.on('data', (data) => { stdout += data; });
-    child.stderr.on('data', (data) => { stderr += data; });
-    try {
-      for (let index = 0; !stdout.includes('"listening"') && index < 150 && child.exitCode === null; index++) {
-        await new Promise((resolve) => setTimeout(resolve, 50));
-      }
-      assert.match(stdout, /"listening"/, stderr + stdout);
-      assert.equal(JSON.parse(stdout.trim()).version, 1);
-      const base = `http://127.0.0.1:${port}`;
-      const navigation = await fetch(`${base}/nested/route`, { headers: { Accept: 'text/html' } });
-      assert.equal(navigation.status, 200);
-      assert.match(await navigation.text(), /Angulus preview/);
-      for (const url of ['/missing.js', '/missing.css', '/api', '/api/missing']) {
-        const response = await fetch(base + url, { headers: { Accept: 'text/html' } });
-        assert.equal(response.status, 404, url);
-        assert.doesNotMatch(await response.text(), /Angulus preview/);
-      }
-      const notNavigation = await fetch(base + '/unknown', { headers: { Accept: '*/*' } });
-      assert.equal(notNavigation.status, 404);
-    } finally {
-      if (child.exitCode === null) {
-        const exited = once(child, 'exit');
-        child.kill('SIGTERM');
-        await exited;
+test('CLI library mode validates the native library manifest', async () => {
+  await fixture(async root => {
+    writeApplication(root);
+    const result = spawnSync(process.execPath, [cli, 'build', '--lib', '--root', root], {
+      cwd: workspace, encoding: 'utf8',
+    });
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /library package.json must declare name and version/);
+  });
+});
+
+test('CLI launcher forwards SIGINT and SIGTERM with conventional exit statuses', async t => {
+  if (process.platform === 'win32') {
+    t.skip('Windows does not provide POSIX SIGTERM process delivery');
+    return;
+  }
+  await fixture(async root => {
+    writeApplication(root);
+    for (const [signal, expected] of [['SIGINT', 130], ['SIGTERM', 143]] as const) {
+      const socket = net.createServer();
+      await new Promise<void>(resolve => socket.listen(0, '127.0.0.1', resolve));
+      const address = socket.address();
+      if (!address || typeof address === 'string') throw new Error('Could not reserve a test port');
+      const port = address.port;
+      await new Promise<void>(resolve => socket.close(() => resolve()));
+
+      const child = spawn(process.execPath, [cli, 'serve', '--root', root, '--host', '127.0.0.1', '--port', String(port)], {
+        cwd: workspace,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      let output = '';
+      child.stdout.on('data', chunk => { output += chunk; });
+      child.stderr.on('data', chunk => { output += chunk; });
+      const ready = new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error(`CLI did not start: ${output}`)), 30_000);
+        const poll = () => {
+          if (output.includes('Angulus dev server:')) {
+            clearTimeout(timeout);
+            resolve();
+          } else if (child.exitCode !== null) {
+            clearTimeout(timeout);
+            reject(new Error(`CLI exited before listening (${child.exitCode}): ${output}`));
+          } else setTimeout(poll, 20);
+        };
+        poll();
+      });
+      try {
+        await ready;
+        child.kill(signal);
+        const [code, actualSignal] = await once(child, 'close');
+        assert.equal(code, expected, `exit signal ${String(actualSignal)}; ${output}`);
+      } finally {
+        if (child.exitCode === null) child.kill('SIGKILL');
       }
     }
   });
-});
-
-test('Vite actually processes component styles through its CSS pipeline', async () => {
-  await fixture(async (root) => {
-    const file = path.join(root, 'component.ts');
-    const css = path.join(root, 'component.css');
-    fs.writeFileSync(file, 'export const count = 1');
-    fs.writeFileSync(css, '.counter { color: red; }');
-    fs.writeFileSync(path.join(root, 'index.html'), '<script type="module" src="/component.ts"></script>');
-    const map = { version: 3, sources: [file], sourcesContent: [''], names: [], mappings: '' };
-    let starts = 0;
-    let closes = 0;
-    const project = {
-      dependencies: new Map([[file, new Set([css])]]),
-      async start() { starts++; },
-      async compile(id: string) {
-        return id === file ? { code: `import ${JSON.stringify(file + '?angulus-style.css')}; export const count: number = 1;`, map, dependencies: [css] } : null;
-      },
-      async style(id: string) {
-        assert.equal(id, file);
-        return { code: fs.readFileSync(css, 'utf8'), map };
-      },
-      async check() { return []; },
-      invalidate() {},
-      async close() { closes++; },
-    };
-    const { createServer } = await import('vite');
-    const server = await createServer({
-      root, configFile: false, logLevel: 'silent',
-      plugins: [angulus({ project })],
-      server: { host: '127.0.0.1', port: 0 },
-    });
-    try {
-      await server.listen();
-      const port = (server.httpServer!.address() as net.AddressInfo).port;
-      const source = await (await fetch(`http://127.0.0.1:${port}/component.ts`)).text();
-      assert.match(source, /angulus-style\.css/);
-      assert.doesNotMatch(source, /count: number/);
-      const style = await (await fetch(`http://127.0.0.1:${port}/component.ts.angulus-style.css`)).text();
-      assert.match(style, /updateStyle/);
-      assert.match(style, /color: red/);
-      assert.equal(starts, 1);
-    } finally { await server.close(); }
-    assert.equal(closes, 1);
-  });
-});
-
-test('exported Vite plugin fails production builds on full-project diagnostics', async () => {
-  let checked = false;
-  const plugin = angulus({
-    project: {
-      async start() {},
-      async check() {
-        checked = true;
-        return [{ severity: 'error', file: 'lazy.html', line: 2, column: 4, code: 'TS2339', message: 'Missing member' }];
-      },
-      async close() {},
-    },
-  });
-  plugin.configResolved({ root: workspace, command: 'build' });
-  await assert.rejects(
-    plugin.buildStart.call({ error(message: string) { throw new Error(message); } }),
-    /lazy\.html:2:4 TS2339: Missing member/,
-  );
-  assert.equal(checked, true);
-  await plugin.closeBundle();
 });

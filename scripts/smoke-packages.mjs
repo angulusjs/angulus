@@ -1,119 +1,96 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { chmod, copyFile, mkdir, readFile, readdir, realpath, rename, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { validateArtifacts } from "./publish.mjs";
+import { validateArtifacts } from "./release-binary.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const release = resolve(root, ".angulus/release");
-
-async function copyDemo(source, destination) {
-  await mkdir(destination, { recursive: true });
-  for (const entry of await readdir(source, { withFileTypes: true })) {
-    if (entry.name.startsWith(".") || ["node_modules", "dist"].includes(entry.name)) continue;
-    if (entry.isDirectory()) await copyDemo(resolve(source, entry.name), resolve(destination, entry.name));
-    else if (entry.isFile() && /\.(ts|html|css|json)$/.test(entry.name)) await copyFile(resolve(source, entry.name), resolve(destination, entry.name));
-  }
-}
 
 export async function smokePackages() {
   const manifestFile = resolve(release, "manifest.json");
   const manifest = JSON.parse(await readFile(manifestFile, "utf8"));
   const artifacts = await validateArtifacts(manifestFile, `v${manifest.version}`);
   const host = artifacts.packages.find(item => item.platform === process.platform && item.arch === process.arch);
-  assert.ok(host, `No packed compiler for ${process.platform}-${process.arch}`);
+  assert.ok(host, `No packed CLI for ${process.platform}-${process.arch}`);
+
   const smoke = resolve(release, "smoke");
   await rm(smoke, { recursive: true, force: true });
   const project = resolve(smoke, "project");
   const stubs = resolve(smoke, "bin");
-  await mkdir(project, { recursive: true });
+  await mkdir(resolve(project, "src"), { recursive: true });
   await mkdir(stubs);
-  await writeFile(resolve(project, "package.json"), JSON.stringify({ name: "angulus-install-smoke", private: true, type: "module" }, null, 2));
-  await copyDemo(resolve(root, "examples/demo"), project);
-  await writeFile(resolve(project, "src/vite-contract.ts"), `
-import defaultAngulus, { angulus, type CheckEvent } from "@angulus/tooling/vite";
-import type { Plugin } from "vite";
-import { buildLibrary, type LibraryBuildResult } from "@angulus/tooling/library";
-const build: (options?: { root?: string }) => Promise<LibraryBuildResult> = buildLibrary;
-void build;
-const plugin: Plugin = angulus({
-  checkBuild: true,
-  onEvent(event) {
-    const typedEvent: CheckEvent = event;
-    if (typedEvent.type === "checked") {
-      const valid: boolean = typedEvent.valid;
-      void valid;
-    }
-  },
-});
-const defaultPlugin: Plugin = defaultAngulus();
-void [plugin, defaultPlugin];
-`);
-  await writeFile(resolve(project, "src/forms-contract.ts"), `
-import { formControl, formGroup, Validators, type FormControl, type FormValue, type ValidatorFn } from "@angulus/forms";
-import type { Signal, WritableSignal } from "@angulus/core";
-const positive: ValidatorFn<number> = value => value > 0 ? null : { positive: true };
-const name: FormControl<string> = formControl("", { validators: [Validators.required] });
-const age = formControl(18, { validators: [positive] });
-const form = formGroup({ name, age });
-const value: Signal<{ name: string; age: number }> = form.value;
-const field: WritableSignal<string> = form.controls.name.value;
-const snapshot: FormValue<typeof form.controls> = value();
-void [field, snapshot];
-// @ts-expect-error Published controls must preserve their value type.
-age.value.set("18");
-// @ts-expect-error Published groups must preserve their field names.
-form.controls.missing;
-`);
-  await writeFile(resolve(project, "src/http-contract.ts"), `
-import { createHttpClient, httpResource, HttpError, type HttpClient, type HttpResourceRequest } from "@angulus/http";
-import type { Signal } from "@angulus/core";
-const client: HttpClient = createHttpClient({ headers: { Accept: "application/json" }, credentials: "same-origin" });
-const resource = httpResource<{ name: string }>(() => "/api/users/1", { client });
-const value: Signal<{ name: string } | undefined> = resource.value;
-const error: Signal<unknown> = resource.error;
-const status: Signal<"idle" | "loading" | "reloading" | "resolved" | "error"> = resource.status;
-const request: HttpResourceRequest = { url: "/api/users/1", headers: { Accept: "application/json" } };
-const failure = new HttpError("failed", 500, "Internal Server Error", "/api/users/1", new Headers(), null);
-void [client, value, error, status, request, failure];
-// @ts-expect-error HTTP resources accept GET descriptors only.
-const invalid: HttpResourceRequest = { url: "/api/users/1", method: "POST" };
-// @ts-expect-error Resource state is read-only.
-resource.value.set({ name: "Ada" });
-`);
+  await writeFile(resolve(project, "package.json"), JSON.stringify({
+    name: "angulus-install-smoke",
+    private: true,
+    type: "module",
+    scripts: { test: "node -e \"console.log('isolated app test ran')\"" },
+  }, null, 2));
+  await writeFile(resolve(project, "src/counter.component.json"), JSON.stringify({
+    selector: "app-counter",
+    module: "./counter.ts",
+    export: "Counter",
+    template: "./counter.html",
+  }));
+  await writeFile(resolve(project, "src/counter.ts"), "export class Counter { count = 1; }\n");
+  await writeFile(resolve(project, "src/counter.html"), "<p>{{ count }}</p>\n");
+  await writeFile(resolve(project, "src/main.ts"), 'import "./counter.component.generated";\n');
+  await writeFile(resolve(project, "index.html"), '<!doctype html><script type="module" src="./src/main.ts"></script>\n');
+
   const marker = resolve(smoke, "go-invoked");
   const goStub = process.platform === "win32" ? "go.cmd" : "go";
   await writeFile(resolve(stubs, goStub), process.platform === "win32"
     ? `@echo off\r\necho GO_MUST_NOT_RUN>"${marker}"\r\nexit /b 99\r\n`
     : `#!${process.execPath}\nimport { writeFileSync } from 'node:fs'; writeFileSync(${JSON.stringify(marker)}, 'GO_MUST_NOT_RUN'); process.exit(99);\n`);
   await chmod(resolve(stubs, goStub), 0o755);
-  const env = { ...process.env, NODE_PATH: "", NODE_OPTIONS: "", PATH: `${stubs}${process.platform === "win32" ? ";" : ":"}${process.env.PATH ?? ""}` };
+  const env = {
+    ...process.env,
+    NODE_PATH: "",
+    NODE_OPTIONS: "",
+    PATH: `${stubs}${process.platform === "win32" ? ";" : ":"}${process.env.PATH ?? ""}`,
+  };
   function run(command, args, expected = 0, extraEnv = {}) {
     const result = spawnSync(command, args, { cwd: project, env: { ...env, ...extraEnv }, encoding: "utf8", timeout: 180_000 });
     if (result.error) throw result.error;
     if (expected === 0 && result.status !== 0) throw new Error(`${command} ${args.join(" ")} failed (${result.status}):\n${result.stdout}\n${result.stderr}`);
     if (expected !== 0 && (result.status === 0 || result.signal)) throw new Error(`Expected actionable failure, got ${result.status}: ${result.stderr}`);
-    if (expected === 0) process.stdout.write(result.stdout);
     return result;
   }
-  const rootManifest = JSON.parse(await readFile(resolve(root, "package.json"), "utf8"));
+
   const selected = [...artifacts.packages.filter(item => item.kind !== "compiler"), host];
   const installArgs = [
     "install", "--ignore-scripts", "--include=optional", "--workspaces=false", "--no-audit", "--no-fund",
     "--registry=https://registry.npmjs.org",
     ...selected.map(item => item.tarball),
-    `@types/node@${rootManifest.devDependencies["@types/node"]}`, `tsx@${rootManifest.devDependencies.tsx}`,
   ];
-  run(process.env.npm_execpath ? process.execPath : "npm", process.env.npm_execpath ? [process.env.npm_execpath, ...installArgs] : installArgs);
+  run(process.env.npm_execpath ? process.execPath : "npm",
+    process.env.npm_execpath ? [process.env.npm_execpath, ...installArgs] : installArgs);
+
   const nodeModules = await realpath(resolve(project, "node_modules"));
-  const guard = resolve(smoke, "guard.mjs");
-  const trace = resolve(smoke, "native-compiler.log");
   const tooling = resolve(nodeModules, "@angulus/tooling");
-  const compilerPackage = resolve(nodeModules, host.name);
-  const binary = resolve(compilerPackage, "bin", process.platform === "win32" ? "angulus-compiler.exe" : "angulus-compiler");
-  // This guard records actual child-process invocations, rather than merely
-  // asserting that a platform package happened to be installed.
+  const cli = resolve(tooling, "src/cli.mjs");
+  const toolingRequire = createRequire(resolve(tooling, "package.json"));
+  const isolation = await import("./package-isolation.mjs");
+  await isolation.checkInstalledDependencies(resolve(project, "package.json"), nodeModules);
+  for (const name of ["@angulus/core", "@angulus/router", "@angulus/forms", "@angulus/http"]) {
+    const file = await realpath(toolingRequire.resolve(name));
+    assert.ok(file.startsWith(nodeModules), `${name} must resolve within the isolated installation`);
+  }
+  const toolingManifest = JSON.parse(await readFile(resolve(tooling, "package.json"), "utf8"));
+  assert.deepEqual(Object.keys(toolingManifest.exports ?? {}), [], "The Go CLI exposes no JavaScript compiler/library/Vite APIs");
+  assert.deepEqual(Object.keys(toolingManifest.dependencies), ["@typescript/native-preview"]);
+  const schema = JSON.parse(await readFile(resolve(tooling, "component.schema.json"), "utf8"));
+  assert.deepEqual(schema.required, ["selector", "module", "export", "template"]);
+
+  const binary = resolve(nodeModules, host.name, "bin", process.platform === "win32" ? "angulus.exe" : "angulus");
+  const notices = await readFile(resolve(nodeModules, host.name, "THIRD_PARTY_NOTICES"), "utf8");
+  for (const dependency of ["github.com/evanw/esbuild", "github.com/tdewolff/parse/v2", "golang.org/x/sys", "The Go Authors"]) {
+    assert.ok(notices.includes(dependency), `Native package must include the ${dependency} license`);
+  }
+  const trace = resolve(smoke, "cli-invoked.log");
+  const guard = resolve(smoke, "guard.mjs");
   await writeFile(guard, `
 import childProcess from "node:child_process";
 import { appendFileSync } from "node:fs";
@@ -122,123 +99,39 @@ import { basename, resolve } from "node:path";
 for (const method of ["spawn", "spawnSync", "execFile", "execFileSync"]) {
   const original = childProcess[method];
   childProcess[method] = function(command, ...args) {
-    if (/^go(?:\\.exe|\\.cmd)?$/i.test(basename(String(command)))) throw new Error("GO_MUST_NOT_RUN");
-    if (resolve(String(command)) === ${JSON.stringify(binary)}) appendFileSync(${JSON.stringify(trace)}, "native\\n");
+    if (/^go(?:\\\\.exe|\\\\.cmd)?$/i.test(basename(String(command)))) throw new Error("GO_MUST_NOT_RUN");
+    if (resolve(String(command)) === ${JSON.stringify(binary)}) appendFileSync(${JSON.stringify(trace)}, "native\\\\n");
     return original.call(this, command, ...args);
   };
 }
 syncBuiltinESMExports();
 `);
-  const guardedEnv = { NODE_OPTIONS: `--import=${pathToFileURL(guard).href}` };
-  await copyFile(resolve(root, "scripts/package-isolation.mjs"), resolve(smoke, "package-isolation.mjs"));
-  const probe = resolve(project, "probe.mjs");
-  await writeFile(probe, `
-import assert from "node:assert/strict";
-import { realpath, readFile, readdir } from "node:fs/promises";
-import { createRequire } from "node:module";
-import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
-import { signal, computed } from "@angulus/core";
-import { createRouter } from "@angulus/router";
-import { formControl, formGroup, Validators } from "@angulus/forms";
-import { createHttpClient, httpResource, HttpError } from "@angulus/http";
-import { buildLibrary } from "@angulus/tooling/library";
-import { checkInstalledDependencies } from "../package-isolation.mjs";
-const nodeModules = ${JSON.stringify(nodeModules)};
-function inside(file) {
-  const part = relative(nodeModules, file);
-  assert.ok(part && part !== ".." && !part.startsWith(".." + sep) && !isAbsolute(part), "Resolved outside isolated node_modules: " + file);
-}
-async function checkTree(directory) {
-  for (const item of await readdir(directory, { withFileTypes: true })) {
-    const file = resolve(directory, item.name);
-    if (item.isSymbolicLink()) inside(await realpath(file));
-    else if (item.isDirectory()) await checkTree(file);
-  }
-}
-await checkTree(nodeModules);
-await checkInstalledDependencies(${JSON.stringify(resolve(project, "package.json"))}, nodeModules);
-const toolingRequire = createRequire(${JSON.stringify(resolve(tooling, "package.json"))});
-for (const name of ["@angulus/core", "@angulus/router", "@angulus/forms", "@angulus/http", "@angulus/tooling/vite", "@angulus/tooling/library"]) {
-  const file = await realpath(fileURLToPath(import.meta.resolve(name)));
-  inside(file);
-  assert.ok(!file.endsWith(".ts"), "Runtime exports must be compiled JS: " + file);
-}
-const toolingManifest = JSON.parse(await readFile(${JSON.stringify(resolve(tooling, "package.json"))}, "utf8"));
-for (const name of Object.keys(toolingManifest.dependencies)) inside(await realpath(toolingRequire.resolve(name)));
-inside(await realpath(toolingRequire.resolve(${JSON.stringify(`${host.name}/package.json`)})));
-const count = signal(2);
-const doubled = computed(() => count() * 2);
-assert.equal(doubled(), 4);
-count.set(3);
-assert.equal(doubled(), 6);
-assert.equal(typeof createRouter, "function");
-const name = formControl("", { validators: [Validators.required] });
-const form = formGroup({ name });
-const greeting = computed(() => "Hello " + form.value().name);
-assert.equal(form.invalid(), true);
-assert.deepEqual(name.errors(), { required: true });
-assert.equal(greeting(), "Hello ");
-name.value.set("Angulus");
-name.markAsTouched();
-assert.equal(greeting(), "Hello Angulus");
-assert.equal(form.valid(), true);
-assert.equal(form.dirty(), true);
-assert.equal(form.touched(), true);
-form.reset();
-assert.deepEqual(form.value(), { name: "" });
-assert.equal(form.pristine(), true);
-assert.equal(form.untouched(), true);
-assert.equal(form.invalid(), true);
-assert.equal(typeof createHttpClient, "function");
-assert.equal(typeof httpResource, "function");
-assert.equal(new HttpError("failed", 500, "Internal Server Error", "/api", new Headers(), null).status, 500);
-const userId = signal(1);
-const api = createHttpClient({
-  fetch: async url => new Response(JSON.stringify({ url: String(url) }), { headers: { "Content-Type": "application/json" } }),
-});
-const user = httpResource(() => "/api/users/" + userId(), { client: api });
-await new Promise(resolve => setImmediate(resolve));
-assert.equal(user.status(), "resolved");
-assert.deepEqual(user.value(), { url: "/api/users/1" });
-userId.set(2);
-await new Promise(resolve => setImmediate(resolve));
-assert.deepEqual(user.value(), { url: "/api/users/2" });
-assert.equal(user.reload(), true);
-await new Promise(resolve => setImmediate(resolve));
-assert.equal(user.status(), "resolved");
-user.destroy();
-assert.equal(user.status(), "idle");
-assert.equal(typeof buildLibrary, "function");
-const { compilerLocation } = await import(pathToFileURL(${JSON.stringify(resolve(tooling, "src/binary.mjs"))}));
-const location = await compilerLocation();
-assert.equal(location.sourceRoot, undefined);
-assert.equal(location.binary, ${JSON.stringify(binary)});
-const { CompilerClient } = await import(pathToFileURL(${JSON.stringify(resolve(tooling, "src/client.mjs"))}));
-const compiler = new CompilerClient();
-try { await compiler.start(); assert.ok(compiler.pid); } finally { await compiler.close(); }
-console.log("Plain Node runtime imports and installed native compiler passed.");
-`);
-  run(process.execPath, [probe], 0, guardedEnv);
-  const cli = resolve(tooling, "src/cli.mjs");
-  for (const command of ["check", "test", "build"]) {
-    const before = await readFile(trace, "utf8");
-    run(process.execPath, [cli, command, "--root", project], 0, guardedEnv);
-    if (command !== "test") assert.ok((await readFile(trace, "utf8")).length > before.length, `${command} must execute the installed compiler`);
-  }
-  assert.match(await readFile(resolve(project, "dist/index.html"), "utf8"), /<script\b/);
-  const hiddenCompiler = resolve(smoke, "compiler-disabled");
-  await rename(compilerPackage, hiddenCompiler);
+  const guarded = { NODE_OPTIONS: `--import=${pathToFileURL(guard).href}` };
+
+  const npmExec = process.env.npm_execpath ? [process.execPath, [process.env.npm_execpath]] : ["npm", []];
+  const checkArgs = ["exec", "--", "angulus", "check", "--root", project];
+  const check = run(npmExec[0], [...npmExec[1], ...checkArgs], 0, guarded);
+  assert.match(check.stdout, /Checked 1 component/);
+  const build = run(process.execPath, [cli, "build", "--root", project], 0, guarded);
+  assert.match(build.stdout, /as ESM/);
+  assert.ok((await readFile(resolve(project, "dist/index.html"), "utf8")).includes("main.js"));
+  const appTest = run(process.execPath, [cli, "test", "--root", project], 0, guarded);
+  assert.match(appTest.stdout, /isolated app test ran/);
+  assert.ok((await readFile(trace, "utf8")).split("native").length >= 3, "CLI commands must invoke the installed native executable");
+
+  const compilerPackage = resolve(nodeModules, host.name);
+  const hidden = resolve(smoke, "cli-disabled");
+  await rename(compilerPackage, hidden);
   try {
-    const result = run(process.execPath, [cli, "check", "--root", project], 1, guardedEnv);
+    const result = run(process.execPath, [cli, "check", "--root", project], 1, guarded);
     assert.match(result.stderr, /optional dependencies enabled|--include=optional/);
-    assert.ok(result.stderr.includes(host.name), "Missing compiler error must identify the required platform package");
+    assert.ok(result.stderr.includes(host.name), "Missing CLI error must identify the host package");
     assert.doesNotMatch(result.stderr, /GO_MUST_NOT_RUN/);
   } finally {
-    await rename(hiddenCompiler, compilerPackage);
+    await rename(hidden, compilerPackage);
   }
   await assert.rejects(readFile(marker), { code: "ENOENT" }, "Smoke must never invoke Go");
-  console.log(`Package smoke passed: ${project}\nNo Go or workspace package symlinks; native ${host.name}@${manifest.version} verified.`);
+  console.log(`Package smoke passed: ${project}\nNo workspace dependency leakage; installed ${host.name}@${manifest.version} invoked directly.`);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) await smokePackages();
