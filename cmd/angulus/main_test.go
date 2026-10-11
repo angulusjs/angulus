@@ -35,6 +35,28 @@ func readFile(t *testing.T, file *os.File) string {
 	return string(data)
 }
 
+func TestReportBuiltIncludesDuration(t *testing.T) {
+	for _, jsonOutput := range []bool{false, true} {
+		stdout := outputFile(t)
+		reportBuilt(eventEmitter{json: jsonOutput, out: stdout}, stdout, project.Result{}, 2, "dist", 1250*time.Millisecond)
+		output := readFile(t, stdout)
+		if !jsonOutput {
+			if !strings.Contains(output, "(1.25s)") {
+				t.Fatalf("missing build duration: %s", output)
+			}
+			continue
+		}
+		var event map[string]any
+		if err := json.Unmarshal([]byte(output), &event); err != nil {
+			t.Fatal(err)
+		}
+		if event["type"] != "built" || event["revision"] != float64(2) ||
+			event["directory"] != "dist" || event["durationMs"] != float64(1250) {
+			t.Fatalf("unexpected build timing event: %#v", event)
+		}
+	}
+}
+
 func TestNetworkOptionsRespectCommandLineOverrides(t *testing.T) {
 	config := project.Config{Host: "0.0.0.0", Port: 3210}
 	opts, err := parseOptions([]string{"serve", "--host", "127.0.0.1", "--port", "4567"})

@@ -162,22 +162,20 @@ func runCLI(args []string, stdout, stderr *os.File) (int, error) {
 		if out == "" {
 			out = "dist"
 		}
+		started := time.Now()
 		var result project.Result
 		if opts.library {
 			result = project.BuildLibrary(ctx, root, out)
 		} else {
 			result = project.Build(ctx, root, out)
 		}
+		duration := time.Since(started)
 		reportChecked(emit, stderr, result, 1)
 		if hasErrors(result.Diagnostics) {
 			return 1, errors.New("project build failed")
 		}
 		outputPath := absoluteFrom(root, out)
-		if opts.json {
-			emit.emit(map[string]any{"type": "built", "revision": 1, "directory": outputPath})
-		} else {
-			fmt.Fprintf(stdout, "Built %d component(s) as ESM in %s.\n", len(result.Components), outputPath)
-		}
+		reportBuilt(emit, stdout, result, 1, outputPath, duration)
 		return 0, nil
 	case "serve":
 		out := opts.out
@@ -292,6 +290,16 @@ func reportCheckedState(emit eventEmitter, stderr *os.File, result project.Resul
 	}
 }
 
+func reportBuilt(emit eventEmitter, stdout *os.File, result project.Result, revision int, directory string, duration time.Duration) {
+	if emit.json {
+		emit.emit(map[string]any{"type": "built", "revision": revision, "directory": directory,
+			"durationMs": float64(duration) / float64(time.Millisecond)})
+	} else {
+		fmt.Fprintf(stdout, "Built %d component(s) as ESM in %s (%s).\n",
+			len(result.Components), directory, duration.Round(time.Millisecond))
+	}
+}
+
 func serve(root, out, host string, port int, proxies map[string]string, emit eventEmitter, stdout, stderr *os.File) (int, error) {
 	if !isFile(filepath.Join(root, "index.html")) {
 		return 1, errors.New("serve requires an index.html module application entry")
@@ -309,7 +317,9 @@ func serve(root, out, host string, port int, proxies map[string]string, emit eve
 	defer builder.Close()
 	ctx, cancel, signals := interruptContext()
 	defer cancel()
+	started := time.Now()
 	result := builder.Build(ctx)
+	duration := time.Since(started)
 	reportChecked(emit, stderr, result, 1)
 	if !hasErrors(result.Diagnostics) && (!isDirectory(staticRoot) || !isFile(filepath.Join(staticRoot, "index.html"))) {
 		return 1, errors.New("serve requires an index.html module application entry")
@@ -325,6 +335,8 @@ func serve(root, out, host string, port int, proxies map[string]string, emit eve
 	}
 	if hasErrors(result.Diagnostics) {
 		server.BroadcastError(project.ErrorEventMessage(result.Diagnostics))
+	} else {
+		reportBuilt(emit, stdout, result, 1, staticRoot, duration)
 	}
 	httpServer := &http.Server{Handler: server.Handler(), ReadHeaderTimeout: 10 * time.Second}
 	defer httpServer.Close()
@@ -345,7 +357,9 @@ func serve(root, out, host string, port int, proxies map[string]string, emit eve
 				errCh <- fmt.Errorf("capture source revision: %w", snapshotErr)
 				return
 			}
+			started := time.Now()
 			result := builder.Build(ctx)
+			duration := time.Since(started)
 			if ctx.Err() != nil {
 				return
 			}
@@ -380,6 +394,7 @@ func serve(root, out, host string, port int, proxies map[string]string, emit eve
 				server.BroadcastError(message)
 				return
 			}
+			reportBuilt(emit, stdout, result, revision, staticRoot, duration)
 			cssOnly := len(paths) > 0 && maps.Equal(lastScripts, scripts)
 			for _, file := range paths {
 				if strings.ToLower(filepath.Ext(file)) != ".css" {

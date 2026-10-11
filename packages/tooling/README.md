@@ -51,7 +51,10 @@ Current limitations are intentional and explicit:
   but no Vite-compatible HMR. Initial source errors are recoverable without
   restarting the server.
 
-`--json` emits version-1 revisioned NDJSON events. `generate component <name>`
+Successful `build` (including `--lib`) and initial/incremental `serve` builds
+print elapsed time, including template/type checking and output generation.
+`--json` emits version-1 revisioned NDJSON events; `built` includes `durationMs`.
+`generate component <name>`
 creates TS/descriptor/HTML/CSS/test files. `angulus.config.json` supports host/port,
 development-only HTTP proxies, test argv and `library.entry`; CLI flags override
 configured host/port.
