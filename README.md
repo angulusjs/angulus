@@ -92,6 +92,31 @@ For maintainers, see [npm release setup and procedure](docs/releases.md),
 including the initial manual bootstrap and per-package Trusted Publisher
 configuration. No packages are published by `npm ci`, builds or pull-request CI.
 
+### Migrating an Angular application
+
+The [Angular-to-Angulus agent skill](.github/skills/angular-to-angulus/SKILL.md)
+guides an AI coding agent through a behavior-preserving rewrite: application
+inventory, tooling, components and templates, state and lifecycle, forms, HTTP,
+routing, and verification.
+
+To use it in another repository, copy
+`.github/skills/angular-to-angulus/SKILL.md` into the same path in your Angular
+project. In an agent that supports repository skills, ask:
+
+```text
+Use the angular-to-angulus skill to migrate this Angular application to Angulus.
+Inventory unsupported features first, preserve existing behavior, and verify
+the migrated application with type checks, a production build, and its tests.
+```
+
+For a multi-application workspace, specify the application to migrate. Agents
+without skill discovery can read the linked file as migration instructions.
+The skill is guidance, not an automated codemod or a compatibility layer.
+Angulus is experimental; Angular-specific DI, UI libraries, projection, nested
+routing, SSR, and other unsupported features require explicit design decisions,
+not just changed imports. Check that the selected npm release contains the
+Angulus APIs needed by the application.
+
 ### Publishing your own components
 
 Use `angulus build --lib` to build a component library into a publishable `dist`
