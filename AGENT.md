@@ -1,53 +1,53 @@
-Ниже — готовый промпт. Он фиксирует принятые решения и разделяет рабочую первую версию и дальнейшее развитие, чтобы разработка не закончилась набором заглушек.
+Below is a ready-to-use prompt. It captures the agreed decisions and separates the first working version from later evolution so development does not end up as a pile of stubs.
 
 ```text
-Ты — ведущий инженер по компиляторам и frontend-инфраструктуре.
+You are a lead engineer in compilers and frontend infrastructure.
 
-Разработай Angulus: легковесный фреймворк для SPA с Angular-подобным синтаксисом, компонентами на классах, отдельными HTML/CSS, компилятором на Go и интеграцией с Vite.
+Build Angulus: a lightweight SPA framework with Angular-like syntax, class-based components, separate HTML/CSS files, a Go compiler, and Vite integration.
 
-Основной сценарий: приложения преимущественно разрабатываются при помощи AI. Поэтому важнее всего предсказуемость, строгая типизация, явные контракты, качественная диагностика и короткий цикл проверки изменений.
+Primary scenario: applications are mostly developed with AI assistance. Therefore, the top priorities are predictability, strict typing, explicit contracts, high-quality diagnostics, and a short feedback loop for changes.
 
-Нужна работающая реализация, а не только проектирование, псевдокод или структура каталогов.
+A working implementation is required, not just design docs, pseudocode, or folder structure.
 
-# 1. Порядок работы
+# 1. Workflow
 
-Сначала изучи текущий workspace, существующие инструкции, код и доступные инструменты.
+First, study the current workspace, existing instructions, code, and available tools.
 
-Не перезаписывай существующие файлы и не переделывай постороннее приложение под фреймворк. Если workspace занят несвязанным проектом, размести Angulus в отдельном подкаталоге. При конфликте расположения уточни его.
+Do not overwrite existing files and do not refactor an unrelated application into this framework. If the workspace is occupied by an unrelated project, place Angulus in a separate subdirectory. If there is a location conflict, ask for clarification.
 
-Зафиксируй краткий план, после чего приступай к реализации.
+Record a short plan, then proceed with implementation.
 
-Работай вертикальными этапами:
-1. Минимальный компонент проходит весь путь от исходников до браузера.
-2. Реактивность, события и жизненный цикл.
-3. Управляющие конструкции и композиция компонентов.
-4. Проверка типов и диагностика.
-5. CLI, HMR и production-сборка.
-6. Минимальный роутер и проверка SPA-сценариев.
+Work in vertical stages:
+1. A minimal component passes through the full path from source to browser.
+2. Reactivity, events, and lifecycle.
+3. Control-flow constructs and component composition.
+4. Type checking and diagnostics.
+5. CLI, HMR, and production build.
+6. Minimal router and SPA scenario validation.
 
-Проверяй каждый этап. Не создавай десятки пустых пакетов, заглушек и неподключённых API ради видимости полноты.
+Validate each stage. Do not create dozens of empty packages, stubs, and disconnected APIs just for the appearance of completeness.
 
-# 2. Зафиксированные архитектурные решения
+# 2. Fixed architectural decisions
 
-Не заменяй эти решения без согласования:
+Do not replace these decisions without agreement:
 
-- Компоненты описываются TypeScript-классами.
-- Метаданные задаются через @Component.
-- TypeScript, HTML и CSS находятся в отдельных файлах.
-- Собственного формата .angulus нет.
-- Компилятор компонентов написан на Go.
-- Vite остаётся dev-сервером и сборочной инфраструктурой.
-- Интеграция выполняется через собственный Vite-плагин.
-- Проверка типов использует нативную реализацию TypeScript на Go.
-- Браузерный runtime использует signals и точечные DOM-обновления.
-- Нет virtual DOM, runtime-компиляции шаблонов, zone.js и глобального change detection.
-- Node.js допустим и ожидаем для Vite и CLI.
-- Не нужен единый физический бинарник: пользователю нужна единая команда.
-- Не разрабатывай свой bundler и не заменяй Vite прямой сборкой через esbuild.
+- Components are described with TypeScript classes.
+- Metadata is defined via @Component.
+- TypeScript, HTML, and CSS are in separate files.
+- No custom .angulus format.
+- The component compiler is written in Go.
+- Vite remains the dev server and build infrastructure.
+- Integration is done through a custom Vite plugin.
+- Type checking uses a native TypeScript implementation in Go.
+- Browser runtime uses signals and fine-grained DOM updates.
+- No virtual DOM, runtime template compilation, zone.js, or global change detection.
+- Node.js is allowed and expected for Vite and CLI.
+- A single physical binary is not required: users need a single command.
+- Do not build your own bundler and do not replace Vite with direct esbuild bundling.
 
-# 3. Публичная модель компонента
+# 3. Public component model
 
-Ожидаемый API:
+Expected API:
 
 counter/
   counter.ts
@@ -76,14 +76,14 @@ export class CounterComponent {
 counter.html:
 
 <section class="counter">
-  <span>Значение: {{ count() }}</span>
+  <span>Value: {{ count() }}</span>
 
   <button (click)="increment()">
-    Увеличить
+    Increment
   </button>
 
   @if (reachedLimit()) {
-    <p>Достигли десяти</p>
+    <p>Reached ten</p>
   }
 </section>
 
@@ -95,198 +95,198 @@ counter.css:
   gap: 12px;
 }
 
-Требования:
+Requirements:
 
-- Один экземпляр класса на экземпляр компонента.
-- Инициализированные в полях signals не разделяются между экземплярами.
-- Нет setup(), defineComponent() и ручного возврата полей в шаблон.
-- Нет обязательного extends BaseComponent.
-- Шаблон имеет доступ только к публичным членам экземпляра.
-- Обычные поля не становятся реактивными автоматически.
-- Методы событий вызываются с правильным this.
-- @Component обрабатывается во время компиляции, без runtime reflection.
-- templateUrl/styleUrl разрешаются относительно файла компонента.
-- Исходные HTML не загружаются браузером во время работы приложения.
-- Метаданные статически анализируются без исполнения пользовательского кода.
-- В первой версии разреши ограниченную, документированную форму метаданных: литералы и явно поддерживаемые ссылки.
+- One class instance per component instance.
+- Signals initialized in fields are not shared across instances.
+- No setup(), defineComponent(), or manual return of fields to templates.
+- No mandatory extends BaseComponent.
+- The template only has access to public members of the instance.
+- Ordinary fields do not become reactive automatically.
+- Event methods are called with correct this.
+- @Component is processed at compile time, without runtime reflection.
+- templateUrl/styleUrl are resolved relative to the component file.
+- Source HTML files are not fetched by the browser at runtime.
+- Metadata is analyzed statically without executing user code.
+- In the first version, allow a limited, documented metadata form: literals and explicitly supported references.
 
-# 4. Синтаксис шаблонов
+# 4. Template syntax
 
-Поддержи:
+Support:
 
-- {{ expression }} — текстовая интерполяция.
-- [property]="expression" — привязка DOM-свойства или входа компонента.
-- (event)="handler($event)" — обработчик DOM-события или выхода компонента.
-- [(value)]="signal" — двусторонняя привязка для текстовых input.
+- {{ expression }} - text interpolation.
+- [property]="expression" - DOM property or component input binding.
+- (event)="handler($event)" - DOM event or component output handler.
+- [(value)]="signal" - two-way binding for text inputs.
 - @if / @else.
 - @for (item of items(); track item.id).
 - @switch / @case / @default.
 
-Не делай вид, что [(value)] автоматически решает семантику всех элементов форм. Для checkbox, select и других случаев нужны отдельные продуманные правила; неподдерживаемые варианты диагностируй.
+Do not pretend [(value)] automatically solves form semantics for all elements. Checkbox, select, and other cases need separate, well-thought-out rules; unsupported variants must be diagnosed.
 
-Для @for:
-- track обязателен;
-- используется keyed reconciliation;
-- перестановка элементов сохраняет соответствующие экземпляры компонентов;
-- удаление элемента освобождает его ресурсы;
-- повторяющиеся ключи явно диагностируются.
+For @for:
+- track is required;
+- keyed reconciliation is used;
+- reordering preserves corresponding component instances;
+- item removal releases resources;
+- duplicate keys are diagnosed explicitly.
 
-Не разрешай произвольное выполнение инструкций в обычных выражениях шаблона. Определи и документируй допустимую грамматику.
+Do not allow arbitrary statement execution in regular template expressions. Define and document the allowed grammar.
 
-Интерполяции создают текст, а не небезопасный HTML.
-Не добавляй raw HTML API в первую версию.
+Interpolations create text, not unsafe HTML.
+Do not add a raw HTML API in v1.
 
-# 5. Композиция компонентов
+# 5. Component composition
 
-Нужны:
+Required:
 
-- Явные импорты используемых компонентов.
-- Локальное объявление зависимостей через imports в @Component.
-- Типизированные inputs.
-- Типизированные outputs.
-- Проверка обязательных inputs.
-- Проверка типа $event.
+- Explicit imports of used components.
+- Local dependency declaration via imports in @Component.
+- Typed inputs.
+- Typed outputs.
+- Required input checks.
+- $event type checks.
 
-Ориентир API:
+Target API:
 
 readonly product = input.required<Product>();
 readonly add = output<{ productId: string }>();
 
-Использование:
+Usage:
 
 <product-card
   [product]="product"
   (add)="cart.add($event.productId)"
 />
 
-Не создавай глобальный реестр автоматически найденных компонентов.
+Do not create a global registry of auto-discovered components.
 
-Неизвестный компонент должен давать ошибку, а не молча становиться HTML-тегом. Предусмотри явное разрешение настоящих custom elements.
+An unknown component must produce an error, not silently become an HTML tag. Provide explicit support for real custom elements.
 
-Определи порядок инициализации: обязательные inputs доступны до первого рендера и onMount. Обращение к ещё не установленному обязательному input не должно возвращать молчаливый undefined.
+Define initialization order: required inputs are available before first render and onMount. Accessing a not-yet-set required input must not return silent undefined.
 
-# 6. Реактивность и lifecycle
+# 6. Reactivity and lifecycle
 
-Реализуй:
+Implement:
 
 - signal;
 - computed;
-- управляемый effect;
-- планировщик обновлений;
-- освобождение ресурсов по scope.
+- controlled effect;
+- update scheduler;
+- scope-based resource disposal.
 
-Компонент обновляет только зависимые DOM-участки.
+A component updates only dependent DOM parts.
 
-Предусмотри:
-- смену динамических зависимостей;
-- batching обновлений;
-- отсутствие подписок от уничтоженных компонентов;
-- cleanup при смене веток @if;
-- cleanup при удалении элементов @for;
-- cleanup при смене маршрута.
+Cover:
+- dynamic dependency changes;
+- batched updates;
+- no subscriptions from destroyed components;
+- cleanup on @if branch changes;
+- cleanup on @for item removal;
+- cleanup on route changes.
 
-Минимальные lifecycle hooks:
+Minimal lifecycle hooks:
 - onMount;
 - onDestroy.
 
-Определи порядок их вызова и способ регистрации cleanup. Не переносить весь lifecycle Angular.
+Define call order and cleanup registration mechanism. Do not port the full Angular lifecycle.
 
-# 7. Go-компилятор
+# 7. Go compiler
 
-Конвейер:
+Pipeline:
 
 TypeScript + HTML + CSS
-  → разбор и статические метаданные
-  → AST шаблона
-  → разрешение имён и компонентов
-  → промежуточное представление
-  → исполняемый код + CSS + source maps
-  → проверочное TypeScript-представление
+  -> parsing and static metadata
+  -> template AST
+  -> name/component resolution
+  -> intermediate representation
+  -> executable code + CSS + source maps
+  -> type-check TypeScript representation
 
-Раздели парсер, семантический анализ и генерацию кода.
+Separate parser, semantic analysis, and code generation.
 
-Не используй регулярные выражения как основной парсер вложенных шаблонов или TypeScript.
+Do not use regex as the primary parser for nested templates or TypeScript.
 
-Для TypeScript используй доступное совместимое решение разбора либо обоснованный ограниченный frontend. Сначала проверь реальные API и лицензии зависимостей. Не пиши собственную реализацию всей грамматики TypeScript.
+For TypeScript, use an available compatible parser or a justified limited frontend. First verify real dependency APIs and licenses. Do not write your own full TypeScript grammar implementation.
 
-Допускается сохранять пользовательский TypeScript для последующей обработки Vite, если компилятор корректно извлекает метаданные и выполняет необходимые преобразования.
+It is acceptable to preserve user TypeScript for later Vite processing if the compiler correctly extracts metadata and applies required transformations.
 
-Source maps должны вести к исходному TS/HTML/CSS.
+Source maps must map back to original TS/HTML/CSS.
 
-Стили локальны по умолчанию. Используй корректный CSS-парсер/преобразователь. Не ломай селекторы и at-rules строковыми заменами.
+Styles are local by default. Use a proper CSS parser/transformer. Do not break selectors and at-rules via string replacements.
 
-Определи границы локальных стилей между родительским и дочерним компонентом. Глобальный CSS подключается явно.
+Define boundaries of local styles between parent and child components. Global CSS is connected explicitly.
 
-# 8. Нативный TypeScript
+# 8. Native TypeScript
 
-До реализации адаптера проверь актуальные:
-- пакет и команду нативного TypeScript;
-- поддерживаемые версии и платформы;
-- интерфейсы диагностики;
-- watch/incremental-возможности;
-- наличие публичного API.
+Before implementing the adapter, verify current:
+- native TypeScript package and command;
+- supported versions and platforms;
+- diagnostics interfaces;
+- watch/incremental capabilities;
+- public API availability.
 
-Не предполагай, что внутренние Go-пакеты TypeScript можно импортировать сторонним проектом.
+Do not assume TypeScript internal Go packages can be imported by third-party projects.
 
-Предпочтение первой версии:
-- закреплённая версия native TypeScript;
-- отдельный процесс;
-- собственный адаптер;
-- без форка TypeScript.
+Preference for v1:
+- pinned native TypeScript version;
+- separate process;
+- own adapter;
+- no TypeScript fork.
 
-Если нужного интерфейса нет, явно объясни ограничение и предложи рабочий вариант. Не выдумывай API и не подменяй проверку типов транспиляцией.
+If required interfaces are missing, explicitly explain the limitation and propose a working alternative. Do not invent APIs and do not replace type checking with transpilation.
 
-Генерируй проверочный TS для:
-- выражений шаблона;
+Generate type-check TS for:
+- template expressions;
 - inputs/outputs;
-- событий DOM;
-- областей видимости циклов;
-- сужения типов в условиях;
-- проверки доступности членов класса.
+- DOM events;
+- loop scopes;
+- type narrowing in conditions;
+- class member accessibility checks.
 
-Продумай разрешение импортов, контракты компонентов и связь генерируемых файлов с исходниками.
+Design import resolution, component contracts, and mapping between generated and source files.
 
-Ошибки переводятся обратно в позиции исходного HTML/TS.
+Map errors back to source HTML/TS positions.
 
-Ошибки в неоткрытом lazy-маршруте также должны обнаруживаться полной проверкой и production-сборкой.
+Errors in unopened lazy routes must also be found by full checks and production builds.
 
-# 9. Интеграция с Vite
+# 9. Vite integration
 
-Vite-плагин запускает долгоживущий Go-процесс.
+The Vite plugin launches a long-running Go process.
 
-Обмен:
-- структурированный протокол через stdin/stdout;
-- идентификаторы запросов;
-- версия протокола;
-- stdout только для протокола;
-- stderr для логов;
-- обработка отмены, аварийного завершения и shutdown;
-- отсутствие осиротевших процессов после остановки Vite.
+Communication:
+- structured protocol via stdin/stdout;
+- request IDs;
+- protocol version;
+- stdout for protocol only;
+- stderr for logs;
+- cancellation, crash, and shutdown handling;
+- no orphaned processes after Vite stops.
 
-Не запускай новый компилятор для каждого изменённого файла.
+Do not start a new compiler for every changed file.
 
-Компилятор возвращает необходимые:
-- модули;
+Compiler returns required:
+- modules;
 - CSS;
 - source maps;
-- зависимости;
-- диагностику.
+- dependencies;
+- diagnostics.
 
-Плагин регистрирует зависимости TS → HTML/CSS.
-Не дублируй ответственность графа Vite без необходимости.
+Plugin registers TS -> HTML/CSS dependencies.
+Do not duplicate Vite graph responsibilities unnecessarily.
 
 HMR:
-- CSS обновляется без сброса состояния;
-- шаблоны обновляются с сохранением состояния только там, где это корректно;
-- изменение логики допускает контролируемое пересоздание;
-- если безопасный HMR невозможен, выполняется явная полная перезагрузка;
-- старые эффекты и обработчики освобождаются.
+- CSS updates without state reset;
+- template updates preserve state only where correct;
+- logic changes may trigger controlled remount;
+- if safe HMR is impossible, do explicit full reload;
+- old effects and handlers are disposed.
 
-Не обещай сохранение состояния при любом изменении.
+Do not promise state preservation for every change.
 
 # 10. CLI
 
-Единые команды:
+Unified commands:
 
 angulus serve
 angulus check
@@ -295,158 +295,158 @@ angulus preview
 angulus test
 angulus generate component <name>
 
-Поведение:
+Behavior:
 
 serve:
-- Vite dev-server;
-- watch и HMR;
-- диагностика в терминале и браузере;
-- настраиваемый API-прокси;
-- localhost по умолчанию;
-- понятная ошибка занятого порта.
+- Vite dev server;
+- watch and HMR;
+- diagnostics in terminal and browser;
+- configurable API proxy;
+- localhost by default;
+- clear error on occupied port.
 
 check:
-- полная проверка кода и шаблонов;
-- ненулевой exit code при ошибках;
-- --json с документированным форматом диагностики.
+- full code and template checks;
+- non-zero exit code on errors;
+- --json with documented diagnostics format.
 
 build:
-- обязательная полная проверка;
-- production-сборка через Vite;
-- ненулевой exit code при ошибках;
-- никаких сообщений об успешной сборке при проваленной проверке.
+- mandatory full check;
+- production build via Vite;
+- non-zero exit code on errors;
+- no successful build message when checks fail.
 
 preview:
-- локальная проверка готовой сборки;
-- не позиционируется как production-сервер.
+- local validation of built artifacts;
+- not positioned as a production server.
 
 test:
-- запускает настроенные тесты приложения, а не просто тесты самого фреймворка.
+- runs configured application tests, not just framework tests.
 
 generate:
-- создаёт TS/HTML/CSS и тест по рабочему шаблону;
-- не перезаписывает существующие файлы без явного разрешения.
+- creates TS/HTML/CSS and test from working template;
+- does not overwrite existing files without explicit permission.
 
-Для serve --json предусмотрен поток событий с revision/build ID. Отличай готовность HTTP-сервера от успешной проверки последней версии проекта.
+For serve --json, provide an event stream with revision/build ID. Distinguish HTTP server readiness from successful validation of the latest project revision.
 
-Обычный проект работает без ручного Vite-конфига. Для расширенного использования предоставь экспортируемый Vite-плагин.
+A regular project should work without manual Vite config. For advanced usage, provide an exported Vite plugin.
 
-# 11. Минимальный роутер и SPA
+# 11. Minimal router and SPA
 
-Реализуй:
-- явное описание маршрутов;
-- ленивую загрузку через import();
-- параметры маршрута;
-- переходы без полной перезагрузки;
+Implement:
+- explicit route definitions;
+- lazy loading via import();
+- route params;
+- navigation without full reload;
 - back/forward;
 - not-found;
-- освобождение дерева компонентов при смене маршрута.
+- component tree disposal on route changes.
 
-Проверь прямое открытие вложенного URL.
+Validate direct opening of nested URLs.
 
-SPA fallback применяется к навигации:
-- отсутствующий JS/CSS не должен получать HTML с кодом 200;
-- /api не должен попадать в HTML fallback.
+SPA fallback applies to navigation:
+- missing JS/CSS must not return HTML with status 200;
+- /api must not fall into HTML fallback.
 
-Ошибки загрузки маршрута должны быть видимыми и иметь понятный путь восстановления.
+Route load errors must be visible and have a clear recovery path.
 
-Клиентские guards, если добавляются, не заменяют серверную авторизацию.
+If client guards are added, they do not replace server authorization.
 
-# 12. Масштабирование
+# 12. Scaling
 
-В первой версии заложи:
-- ленивые маршруты;
-- явные публичные контракты компонентов;
-- инкрементальную работу;
+In v1, establish:
+- lazy routes;
+- explicit public component contracts;
+- incremental workflow;
 - scoped cleanup;
-- отсутствие обязательного глобального store.
+- no mandatory global store.
 
-Рекомендуемая структура приложения — по функциональным областям, а не по общим папкам из сотен сервисов и компонентов.
+Recommended app structure is by feature domains, not generic folders with hundreds of services and components.
 
-Не пытайся сразу реализовать:
+Do not try to implement immediately:
 - enterprise DI;
-- сложную систему forms;
-- query-cache;
-- микрофронтенды;
+- complex forms system;
+- query cache;
+- micro-frontends;
 - SSR/hydration;
-- полный DevTools;
-- поддержку всех Angular API.
+- full DevTools;
+- support for all Angular APIs.
 
-Опиши как дальнейшие этапы:
-- вложенные layouts;
+Describe as next stages:
+- nested layouts;
 - route/application providers;
-- формы и валидацию;
-- query-cache и server state;
-- проверку архитектурных границ;
-- workspace с несколькими приложениями;
-- inspect --json и check --affected;
+- forms and validation;
+- query cache and server state;
+- architecture boundary checks;
+- multi-app workspace;
+- inspect --json and check --affected;
 - LSP;
-- миграции версий;
-- локализацию.
+- version migrations;
+- localization.
 
-Не публикуй фиктивные API для этих возможностей.
+Do not publish fake APIs for these capabilities.
 
-# 13. Проверка результата
+# 13. Result validation
 
-Добавь и запусти:
+Add and run:
 
 Go:
-- тесты парсера;
-- некорректные шаблоны;
-- позиции диагностик;
-- тесты генерации;
-- тесты протокола.
+- parser tests;
+- invalid template tests;
+- diagnostic position tests;
+- code generation tests;
+- protocol tests.
 
 Runtime:
-- независимость экземпляров;
+- instance isolation;
 - signals/computed/effects;
-- обновление DOM;
-- правильный this;
+- DOM updates;
+- correct this;
 - disposal;
-- keyed-списки;
+- keyed lists;
 - inputs/outputs.
 
-Интеграционные:
-- запуск serve и HTTP-запрос;
-- браузерный счётчик;
-- изменение CSS и HTML через HMR;
-- ошибка типа в шаблоне с правильным исходным файлом;
-- ошибка в неоткрытом маршруте;
-- неуспешная production-сборка при ошибках;
-- успешная сборка и запуск preview;
-- SPA-навигация и прямой вложенный URL;
-- остановка дочернего компилятора вместе с сервером.
+Integration:
+- start serve and make HTTP request;
+- browser counter;
+- CSS and HTML hot updates via HMR;
+- template type error with correct source file;
+- error in unopened route;
+- failed production build on errors;
+- successful build and preview run;
+- SPA navigation and direct nested URL;
+- child compiler stopped with server.
 
-Проверяй фактическое поведение браузером, а не только snapshot сгенерированного кода.
+Validate actual browser behavior, not only generated code snapshots.
 
-Создай небольшое демонстрационное SPA, использующее только реально работающие публичные API.
+Create a small demo SPA using only truly working public APIs.
 
-Измерь размер минимального runtime после сборки и gzip. Ориентир — до 10 КиБ gzip без роутера, приложения и dev-кода. Это целевой бюджет, не повод скрывать реальный размер или жертвовать корректностью.
+Measure minimal runtime size after build and gzip. Target is up to 10 KiB gzip without router, app code, and dev code. This is a budget target, not a reason to hide real size or sacrifice correctness.
 
-# 14. Документация и завершение
+# 14. Documentation and completion
 
-Добавь:
+Add:
 - quick start;
-- описание модели компонентов;
-- синтаксис шаблонов;
-- правила реактивности и lifecycle;
-- команды CLI;
-- архитектуру компилятора;
-- известные ограничения;
-- инструкции воспроизводимой сборки.
+- component model description;
+- template syntax;
+- reactivity and lifecycle rules;
+- CLI commands;
+- compiler architecture;
+- known limitations;
+- reproducible build instructions.
 
-Зафиксируй версии зависимостей и необходимые lockfiles.
+Pin dependency versions and add required lockfiles.
 
-В финальном отчёте укажи:
-1. Что реально реализовано.
-2. Как запустить пример одной командой после установки зависимостей.
-3. Какие проверки выполнены и с каким результатом.
-4. Измеренный размер runtime.
-5. Что не реализовано или ограничено.
+In the final report include:
+1. What is actually implemented.
+2. How to run the example with one command after installing dependencies.
+3. What checks were run and their results.
+4. Measured runtime size.
+5. What is not implemented or is limited.
 
-Не заявляй production-ready без достаточных проверок.
-Не называй задачу завершённой, если существует только каркас.
-При инфраструктурном блокере укажи точную причину и сохрани воспроизводимое рабочее состояние.
+Do not claim production readiness without sufficient validation.
+Do not call the task complete if only a skeleton exists.
+If blocked by infrastructure, state the exact reason and preserve a reproducible working state.
 
-Начинай с изучения workspace, затем реализуй первый вертикальный срез: класс + внешний HTML/CSS → Go-компилятор → Vite → работающий счётчик в браузере.
-```
+Start by exploring the workspace, then implement the first vertical slice: class + external HTML/CSS -> Go compiler -> Vite -> working browser counter.
+
