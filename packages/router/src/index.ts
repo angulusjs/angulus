@@ -56,6 +56,8 @@ export function createRouter(options: RouterOptions): Router {
     if (route.path !== "*" && !route.path.startsWith("/")) throw new Error(`Route path must start with "/": ${route.path}`);
   }
   const scope = new Scope();
+  // Route components must not wait on an unmounted router scope for their lifecycle.
+  scope.mount();
   const current = signal<RouteState | null>(null);
   const error = signal<unknown | null>(null);
   const loading = signal(false);

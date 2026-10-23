@@ -17,6 +17,77 @@ function component(label: string, destroy = () => {}) {
 }
 const tick = () => new Promise(resolve => setTimeout(resolve, 0));
 
+test("direct route mounts once with required inputs and connected rendered DOM", async (t) => {
+  const { outlet } = setup("/track/101");
+  const mounts: Array<{ id: string; rendered: string | null; connected: boolean }> = [];
+  class TrackingPage {
+    readonly routeOrderId = input.required<string>();
+    onMount() {
+      mounts.push({
+        id: this.routeOrderId(),
+        rendered: outlet.textContent,
+        connected: outlet.firstChild?.isConnected ?? false,
+      });
+    }
+  }
+  defineComponent(TrackingPage, (ctx, parent) => { text(parent, ctx.routeOrderId()); });
+  const router = createRouter({ outlet, routes: [{
+    path: "/track/:orderId",
+    load: async () => TrackingPage,
+    inputs: params => ({ routeOrderId: params.orderId }),
+  }] });
+  t.after(() => router.destroy());
+
+  await router.start();
+  await tick();
+  assert.equal(router.error(), null);
+  assert.equal(outlet.textContent, "101");
+  assert.deepEqual(mounts, [{ id: "101", rendered: "101", connected: true }]);
+});
+
+test("navigation, retry and not found mount each page once and clean up lifecycle resources", async (t) => {
+  const { outlet } = setup("/track/101");
+  const mounts: string[] = [], cleanups: string[] = [], destroyed: string[] = [];
+  class TrackingPage {
+    readonly routeOrderId = input.required<string>();
+    onMount() {
+      const id = this.routeOrderId();
+      mounts.push(id);
+      return () => { cleanups.push(id); };
+    }
+    onDestroy() { destroyed.push(this.routeOrderId()); }
+  }
+  class Missing {
+    onMount() { mounts.push("missing"); return () => { cleanups.push("missing"); }; }
+    onDestroy() { destroyed.push("missing"); }
+  }
+  defineComponent(TrackingPage, (ctx, parent) => { text(parent, ctx.routeOrderId()); });
+  defineComponent(Missing, (_, parent) => { text(parent, "missing"); });
+  const router = createRouter({ outlet, routes: [{
+    path: "/track/:orderId",
+    load: async () => TrackingPage,
+    inputs: params => ({ routeOrderId: params.orderId }),
+  }], notFound: async () => Missing });
+  t.after(() => router.destroy());
+
+  await router.start();
+  await router.navigate("/track/102");
+  await router.retry();
+  await router.navigate("/missing");
+  assert.equal(router.error(), null);
+  assert.equal(outlet.textContent, "missing");
+  assert.deepEqual(mounts, ["101", "102", "102", "missing"]);
+  assert.deepEqual(cleanups, ["101", "102", "102"]);
+  assert.deepEqual(destroyed, ["101", "102", "102"]);
+
+  router.destroy();
+  router.destroy();
+  assert.equal(outlet.textContent, "");
+  assert.deepEqual(mounts, ["101", "102", "102", "missing"]);
+  assert.deepEqual(cleanups, mounts);
+  assert.deepEqual(destroyed, mounts);
+});
+
 test("lazy route params, navigation, not found, popstate, and destruction", async () => {
   const { window, outlet } = setup("/products/hello%20world?view=full");
   let destroyed = 0, loads = 0;
